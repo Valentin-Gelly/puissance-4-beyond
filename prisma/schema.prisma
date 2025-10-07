@@ -8,8 +8,22 @@ generator client {
 }
 
 model User {
-  id        Int      @id @default(autoincrement())
-  email     String   @unique
-  password  String
-  createdAt DateTime @default(now())
+  id                 Int      @id @default(autoincrement())
+  email              String   @unique
+  password           String
+  verified           Boolean  @default(false)
+  verificationToken  String?  @unique
+  createdAt          DateTime @default(now())
+  stats              Stats?
+}
+
+model Stats {
+  id           Int    @id @default(autoincrement())
+  userId       Int    @unique
+  gamesPlayed  Int    @default(0)
+  gamesWon     Int    @default(0)
+  gamesLost    Int    @default(0)
+  piecesPlayed Int    @default(0)
+
+  user         User   @relation(fields: [userId], references: [id])
 }

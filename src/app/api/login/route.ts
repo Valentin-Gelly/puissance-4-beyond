@@ -14,8 +14,14 @@ export async function POST(req: Request) {
             return NextResponse.json({ error: "Champs manquants" }, { status: 400 });
 
         const user = await prisma.user.findUnique({ where: { email } });
-        if (!user)
-            return NextResponse.json({ error: "Utilisateur introuvable" }, { status: 400 });
+        if (!user) return NextResponse.json({ error: "Utilisateur introuvable" }, { status: 400 });
+
+        if (!user.verified) {
+            return NextResponse.json(
+                { error: "Compte non vérifié. Vérifiez votre e-mail pour activer votre compte." },
+                { status: 403 }
+            );
+        }
 
         const valid = await bcrypt.compare(password, user.password);
         if (!valid)

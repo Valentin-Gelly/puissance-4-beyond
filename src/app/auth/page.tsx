@@ -29,7 +29,7 @@ export default function AuthPage() {
         if (res.ok) {
             if (isLogin) {
                 // Connexion réussie → rediriger vers le jeu
-                window.location.href = "/game";
+                window.location.href = "/lobby";
             } else {
                 // Inscription réussie → passer en mode connexion
                 alert("Inscription réussie ! Vous pouvez maintenant vous connecter.");

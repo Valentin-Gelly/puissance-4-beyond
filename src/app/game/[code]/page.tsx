@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 
 type Cell = null | "red" | "yellow";
 
+// Grid must be 6x7
 const ROWS = 6;
 const COLS = 7;
 

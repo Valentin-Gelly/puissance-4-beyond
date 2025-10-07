@@ -8,7 +8,7 @@ export default function HomePage() {
             const res = await fetch("/api/game");
             if (res.ok) {
                 // Utilisateur connecté → redirection vers le jeu
-                window.location.href = "/game";
+                window.location.href = "/lobby";
             } else {
                 // Non connecté → redirection vers la page d'authentification
                 window.location.href = "/auth";
