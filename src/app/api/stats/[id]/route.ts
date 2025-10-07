@@ -1,24 +1,20 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 
-interface Params {
-    id: string;
-}
-
-export async function GET(req: Request, { params }: { params: Params }) {
+export async function GET(
+    req: Request,
+    context: { params: Promise<{ id: string }> }
+) {
     try {
-        // params.id existe déjà ici
-        const userId = parseInt(params.id, 10);
+        const { id } = await context.params;
+        const userId = parseInt(id, 10);
 
         const stats = await prisma.stats.findUnique({
             where: { userId },
         });
 
         if (!stats) {
-            return NextResponse.json(
-                { error: "Stats introuvables" },
-                { status: 404 }
-            );
+            return NextResponse.json({ error: "Stats introuvables" }, { status: 404 });
         }
 
         return NextResponse.json(stats);

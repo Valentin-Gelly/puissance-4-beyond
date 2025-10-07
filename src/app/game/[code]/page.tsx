@@ -1,65 +1,125 @@
 "use client";
+
 import { useEffect, useState } from "react";
+import { useParams } from "next/navigation";
+import { useWS } from "@/context/WebSocketContext";
 
 type Cell = null | "red" | "yellow";
-
-// Grid must be 6x7
 const ROWS = 6;
 const COLS = 7;
 
 export default function GamePage() {
-    const [board, setBoard] = useState<Cell[][]>(Array.from({ length: ROWS }, () => Array(COLS).fill(null)));
-    const [currentPlayer, setCurrentPlayer] = useState<"red" | "yellow">("red");
-    const [authorized, setAuthorized] = useState<boolean | null>(null);
+    const params = useParams();
+    const code = params.id;
+    const [user, setUser] = useState<{ id: number; email: string } | null>(null);
 
+    const [board, setBoard] = useState<Cell[][]>(
+        Array.from({ length: ROWS }, () => Array(COLS).fill(null))
+    );
+    const [isMyTurn, setIsMyTurn] = useState(false);
+    const [myColor, setMyColor] = useState<"red" | "yellow">("red");
+    const [opponent, setOpponent] = useState<string | undefined>(undefined);
+
+    const { send, addHandler, removeHandler, connected } = useWS();
+
+    // --- Récupérer l'utilisateur
     useEffect(() => {
-        const fetchAuth = async () => {
-            const res = await fetch("/api/game", {
-                method: "GET",
-                credentials: "include",
-            });
-
-            if (res.ok) setAuthorized(true);
-            else {
-                setAuthorized(false);
-                alert("Accès refusé. Veuillez vous connecter.");
+        const fetchUser = async () => {
+            try {
+                const res = await fetch("/api/auth/me", { credentials: "include" });
+                if (!res.ok) throw new Error("Non connecté");
+                const { user } = await res.json();
+                setUser(user);
+            } catch {
                 window.location.href = "/auth";
             }
         };
-        fetchAuth();
+        fetchUser();
     }, []);
 
-    if (authorized === null) return <p>Chargement...</p>;
+    // --- WS messages
+    useEffect(() => {
+        if (!user) return;
 
-    const handleClick = (col: number) => {
-        const newBoard = board.map((row) => [...row]);
-        for (let row = ROWS - 1; row >= 0; row--) {
-            if (!newBoard[row][col]) {
-                newBoard[row][col] = currentPlayer;
-                setBoard(newBoard);
-                setCurrentPlayer(currentPlayer === "red" ? "yellow" : "red");
-                break;
+        const handler = (data: any) => {
+            switch (data.type) {
+                case "joinedLobby":
+                    setOpponent(data.host);
+                    break;
+                case "guestJoined":
+                    setOpponent(data.guest);
+                    break;
+                case "gameStarted":
+                    setMyColor(data.color);
+                    setIsMyTurn(data.isMyTurn); // host = true, guest = false
+                    setOpponent(data.opponent);
+                    // reset board
+                    setBoard(Array.from({ length: ROWS }, () => Array(COLS).fill(null)));
+                    break;
+                case "movePlayed":
+                    applyMove(data.move.col, data.move.color);
+                    setIsMyTurn(data.isMyTurn); // ← on prend directement l'info du serveur
+                    break;
             }
-        }
+        };
+
+        addHandler(handler);
+        send({ type: "joinLobby", code });
+
+        return () => removeHandler(handler);
+    }, [user, code, addHandler, removeHandler, send, myColor]);
+
+    // --- Fonctions de jeu
+    const applyMove = (col: number, color: "red" | "yellow") => {
+        setBoard(prev => {
+            const copy = prev.map(row => [...row]);
+            for (let row = ROWS - 1; row >= 0; row--) {
+                if (!copy[row][col]) {
+                    copy[row][col] = color;
+                    break;
+                }
+            }
+            return copy;
+        });
     };
 
+    const handlePlayMove = (col: number) => {
+        if (!isMyTurn) return alert("Ce n'est pas votre tour.");
+        applyMove(col, myColor);
+        setIsMyTurn(false); // après notre coup, c'est au tour de l'adversaire
+        send({ type: "playMove", move: { col, color: myColor } });
+    };
+
+    if (!user) return <p>Chargement...</p>;
+
     return (
-        <div className="flex flex-col items-center justify-center min-h-screen bg-gray-100 text-black">
-            <h1 className="text-3xl font-bold mb-6">Puissance 4</h1>
+        <div className="min-h-screen bg-gray-100 flex flex-col items-center p-8 text-black">
+            <h1 className="text-2xl font-bold mb-2">Partie {code}</h1>
+            <p className="mb-4">
+                Adversaire : {opponent ?? "En attente..."} — {isMyTurn ? "Votre tour" : "Tour adverse"}
+            </p>
             <div className="grid grid-rows-6 grid-cols-7 gap-1 bg-blue-500 p-2 rounded-lg">
-                {board.map((row, rowIndex) =>
-                    row.map((cell, colIndex) => (
+                {board.map((row, r) =>
+                    row.map((cell, c) => (
                         <div
-                            key={`${rowIndex}-${colIndex}`}
+                            key={`${r}-${c}`}
                             className="w-12 h-12 rounded-full bg-gray-200 flex items-center justify-center cursor-pointer"
-                            onClick={() => handleClick(colIndex)}
+                            onClick={() => handlePlayMove(c)}
                         >
-                            {cell && <div className={`w-10 h-10 rounded-full ${cell === "red" ? "bg-red-500" : "bg-yellow-400"}`}></div>}
+                            {cell && (
+                                <div
+                                    className={`w-10 h-10 rounded-full ${
+                                        cell === "red" ? "bg-red-500" : "bg-yellow-400"
+                                    }`}
+                                ></div>
+                            )}
                         </div>
                     ))
                 )}
             </div>
-            <p className="mt-4 text-lg">Joueur actuel : {currentPlayer}</p>
+            <p className="mt-4 text-sm text-gray-500">
+                WS: {connected ? "connecté" : "déconnecté"}
+            </p>
         </div>
     );
 }

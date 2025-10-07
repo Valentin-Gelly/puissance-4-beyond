@@ -19,11 +19,14 @@ export default function AuthPage() {
 
     const onSubmit = async (data: FormValues) => {
         const endpoint = isLogin ? "/api/login" : "/api/register";
+
         const res = await fetch(endpoint, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
+            credentials: "include",
             body: JSON.stringify(data),
         });
+
         const result = await res.json();
 
         if (res.ok) {
@@ -39,7 +42,6 @@ export default function AuthPage() {
             alert("Erreur : " + (result.error || JSON.stringify(result)));
         }
     };
-
 
     return (
         <div className="flex h-screen items-center justify-center text-black bg-gray-100">

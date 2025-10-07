@@ -1,5 +1,7 @@
 "use client";
-import { useEffect, useState, useRef } from "react";
+
+import { useEffect, useState } from "react";
+import { useWS } from "@/context/WebSocketContext";
 
 type Stats = {
     gamesPlayed: number;
@@ -8,22 +10,27 @@ type Stats = {
     piecesPlayed: number;
 };
 
-type Lobby = {
-    code: string;
+type LobbyState =
+    | { mode: "stats" }
+    | {
+    mode: "creating";
+    code?: string;
     status: "waiting" | "ready";
-    opponent?: string;
-};
+    players: string[];
+    isHost: boolean;
+}
+    | { mode: "joining"; codeInput: string; status?: "not-found" | "joined" | "error" };
 
-export default function StatsPage() {
+export default function LobbyPage() {
     const [user, setUser] = useState<{ id: number; email: string } | null>(null);
     const [stats, setStats] = useState<Stats | null>(null);
-    const [statsError, setStatsError] = useState<boolean>(false);
+    const [statsError, setStatsError] = useState(false);
     const [error, setError] = useState<string | null>(null);
-    const [lobby, setLobby] = useState<Lobby | null>(null);
-    const [joinCode, setJoinCode] = useState("");
-    const wsRef = useRef<WebSocket | null>(null);
+    const [lobby, setLobby] = useState<LobbyState>({ mode: "stats" });
 
-    // --- Récupération utilisateur et stats ---
+    const { send, addHandler, removeHandler, connected } = useWS();
+
+    // --- Récupérer user + stats
     useEffect(() => {
         const fetchUserAndStats = async () => {
             try {
@@ -33,7 +40,7 @@ export default function StatsPage() {
                 setUser(user);
 
                 try {
-                    const statsRes = await fetch(`/api/stats/${user.id}`);
+                    const statsRes = await fetch(`/api/stats/${user.id}`, { credentials: "include" });
                     if (!statsRes.ok) throw new Error();
                     const data = await statsRes.json();
                     setStats(data);
@@ -41,88 +48,149 @@ export default function StatsPage() {
                     setStatsError(true);
                 }
             } catch (err: any) {
-                setError(err.message);
-                setTimeout(() => (window.location.href = "/auth"), 2000);
+                setError(err.message || "Erreur");
+                setTimeout(() => (window.location.href = "/auth"), 1500);
             }
         };
-
         fetchUserAndStats();
     }, []);
 
-    // --- Connexion WebSocket ---
+    // --- Gestion messages WS
     useEffect(() => {
-        if (!user) return;
-        const ws = new WebSocket(`ws://localhost:3000?token=${document.cookie.replace(/(?:(?:^|.*;\s*)token\s*=\s*([^;]*).*$)|^.*$/, "$1")}`);
-        wsRef.current = ws;
-
-        ws.onmessage = (event) => {
-            const data = JSON.parse(event.data);
-            if (data.type === "lobbyCreated") {
-                setLobby({ code: data.code, status: "waiting" });
-            }
-            if (data.type === "guestJoined") {
-                setLobby((prev) => prev ? { ...prev, status: "ready", opponent: data.guest } : null);
-            }
-            if (data.type === "joinedLobby") {
-                setLobby({ code: data.code, status: "ready", opponent: data.host });
+        const handler = (data: any) => {
+            if (!user) return;
+            switch (data.type) {
+                case "lobbyCreated":
+                    setLobby({
+                        mode: "creating",
+                        code: data.code,
+                        status: "waiting",
+                        players: [user.email],
+                        isHost: true,
+                    });
+                    break;
+                case "guestJoined":
+                    setLobby(prev => {
+                        if (prev.mode === "creating") {
+                            const players = [...prev.players, data.guest];
+                            return { ...prev, players, status: players.length === 2 ? "ready" : "waiting" };
+                        }
+                        return prev;
+                    });
+                    break;
+                case "joinedLobby":
+                    setLobby({
+                        mode: "creating",
+                        code: data.code,
+                        status: "ready",
+                        players: [data.host, user.email],
+                        isHost: false,
+                    });
+                    break;
+                case "gameStarted":
+                    window.location.href = `/game/${data.code}?color=${data.color}&isMyTurn=${data.isMyTurn}`;
+                    break;
+                case "error":
+                    alert(data.message || "Erreur WS");
+                    if (lobby.mode === "joining") setLobby({ ...lobby, status: "not-found" });
+                    break;
             }
         };
 
-        ws.onclose = () => console.log("WS closed");
-        ws.onerror = (err) => console.error("WS error", err);
+        addHandler(handler);
+        return () => removeHandler(handler);
+    }, [user, addHandler, removeHandler, lobby.mode]);
 
-        return () => ws.close();
-    }, [user]);
+    // --- Actions
+    const onClickCreate = () => {
+        send({ type: "createLobby" });
+    };
+
+    const onClickShowJoin = () => setLobby({ mode: "joining", codeInput: "" });
+
+    const onJoinSubmit = (code: string) => {
+        if (!code) return alert("Entrez un code.");
+        if (lobby.mode === "joining") setLobby({ ...lobby, status: undefined });
+        send({ type: "joinLobby", code: code.trim().toUpperCase() });
+    };
+
+    const onStartGame = () => send({ type: "startGame" });
 
     if (error) return <p className="text-red-500 p-4">{error}</p>;
     if (!user) return <p className="p-4">Chargement...</p>;
-
-    // --- Actions lobby ---
-    const handleCreateGame = () => {
-        wsRef.current?.send(JSON.stringify({ type: "createLobby" }));
-    };
-
-    const handleJoinGame = () => {
-        if (!joinCode) return alert("Veuillez saisir un code");
-        wsRef.current?.send(JSON.stringify({ type: "joinLobby", code: joinCode }));
-    };
 
     return (
         <div className="min-h-screen bg-gray-100 text-black">
             {/* Header */}
             <header className="flex justify-between items-center bg-white shadow-md p-4 sticky top-0 z-10">
                 <h1 className="text-xl font-bold">Bienvenue, {user.email}</h1>
-                <div className="flex gap-4">
+                <div className="flex gap-4 items-center">
                     <button
+                        onClick={onClickCreate}
                         className="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700 transition"
-                        onClick={handleCreateGame}
                     >
                         Créer une partie
                     </button>
-                    <input
-                        type="text"
-                        placeholder="Code de la partie"
-                        className="px-2 py-1 border rounded"
-                        value={joinCode}
-                        onChange={(e) => setJoinCode(e.target.value.toUpperCase())}
-                    />
                     <button
+                        onClick={onClickShowJoin}
                         className="bg-green-600 text-white px-4 py-2 rounded hover:bg-green-700 transition"
-                        onClick={handleJoinGame}
                     >
                         Rejoindre une partie
                     </button>
+                    <span className="text-sm text-gray-500">
+            {connected ? "WS: connecté" : "WS: déconnecté"}
+          </span>
                 </div>
             </header>
 
-            {/* Stats / Lobby */}
+            {/* Main */}
             <main className="p-8">
-                {lobby ? (
-                    <div className="bg-white p-6 rounded shadow max-w-md mx-auto text-center">
-                        <h2 className="text-2xl font-bold mb-2">Partie en attente</h2>
-                        <p>Code de la partie : <strong>{lobby.code}</strong></p>
-                        {lobby.status === "waiting" && <p>En attente d'un autre joueur...</p>}
-                        {lobby.status === "ready" && <p>Prêt à démarrer avec {lobby.opponent} !</p>}
+                {lobby.mode === "creating" ? (
+                    <div className="max-w-md mx-auto bg-white p-6 rounded shadow text-center">
+                        <h2 className="text-2xl font-bold mb-2">Partie créée</h2>
+                        <p className="mb-2">
+                            Code : <span className="font-mono text-xl">{lobby.code ?? "—"}</span>
+                        </p>
+                        <p>Joueurs présents :</p>
+                        <ul>
+                            {lobby.players.map(p => (
+                                <li key={p}>{p}</li>
+                            ))}
+                        </ul>
+                        <p className="mt-2">
+                            Status : {lobby.status === "waiting" ? "En attente" : "Prêt"}
+                        </p>
+                        {lobby.isHost && lobby.status === "ready" && (
+                            <button
+                                onClick={onStartGame}
+                                className="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700 transition mt-4"
+                            >
+                                Démarrer la partie
+                            </button>
+                        )}
+                    </div>
+                ) : lobby.mode === "joining" ? (
+                    <div className="max-w-md mx-auto bg-white p-6 rounded shadow text-center">
+                        <h2 className="text-2xl font-bold mb-2">Rejoindre une partie</h2>
+                        <input
+                            className="border p-2 rounded w-full text-center mb-3"
+                            placeholder="Code de la partie"
+                            value={lobby.codeInput}
+                            onChange={e =>
+                                setLobby({ mode: "joining", codeInput: e.target.value.toUpperCase() })
+                            }
+                        />
+                        <div className="flex gap-2 justify-center">
+                            <button
+                                onClick={() => onJoinSubmit(lobby.codeInput)}
+                                className="bg-green-600 text-white px-4 py-2 rounded hover:bg-green-700 transition"
+                            >
+                                Rejoindre
+                            </button>
+                        </div>
+                        {lobby.status === "not-found" && (
+                            <p className="text-red-500 mt-3">Lobby introuvable</p>
+                        )}
                     </div>
                 ) : (
                     <>
