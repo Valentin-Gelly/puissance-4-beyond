@@ -187,44 +187,63 @@ function setupWebSocketServer(server) {
                     const hostPieces = board.flat().filter(c => c === "red").length;
                     const guestPieces = board.flat().filter(c => c === "yellow").length;
 
-                    // --- Host
+                    // Détermination winner / loser
+                    let winnerId = null;
+                    let loserId = null;
+
+                    if (hasWon) {
+                        winnerId = data.move.color === "red" ? game.hostId : game.guestId;
+                        loserId  = data.move.color === "red" ? game.guestId : game.hostId;
+                    }
+
+                    // Mise à jour des stats host
                     await prisma.stats.upsert({
                         where: { userId: game.hostId },
                         update: {
                             gamesPlayed: { increment: 1 },
-                            gamesWon: { increment: hasWon && data.move.color === "red" ? 1 : 0 },
-                            gamesLost: { increment: hasWon && data.move.color === "yellow" ? 1 : 0 },
+                            gamesWon: { increment: winnerId === game.hostId ? 1 : 0 },
+                            gamesLost: { increment: loserId === game.hostId ? 1 : 0 },
                             piecesPlayed: { increment: hostPieces }
                         },
                         create: {
                             userId: game.hostId,
                             gamesPlayed: 1,
-                            gamesWon: hasWon && data.move.color === "red" ? 1 : 0,
-                            gamesLost: hasWon && data.move.color === "yellow" ? 1 : 0,
+                            gamesWon: winnerId === game.hostId ? 1 : 0,
+                            gamesLost: loserId === game.hostId ? 1 : 0,
                             piecesPlayed: hostPieces
                         }
                     });
 
-                    // --- Guest
+                    // Mise à jour des stats guest
                     if (game.guestId) {
                         await prisma.stats.upsert({
                             where: { userId: game.guestId },
                             update: {
                                 gamesPlayed: { increment: 1 },
-                                gamesWon: { increment: hasWon && data.move.color === "yellow" ? 1 : 0 },
-                                gamesLost: { increment: hasWon && data.move.color === "red" ? 1 : 0 },
+                                gamesWon: { increment: winnerId === game.guestId ? 1 : 0 },
+                                gamesLost: { increment: loserId === game.guestId ? 1 : 0 },
                                 piecesPlayed: { increment: guestPieces }
                             },
                             create: {
                                 userId: game.guestId,
                                 gamesPlayed: 1,
-                                gamesWon: hasWon && data.move.color === "yellow" ? 1 : 0,
-                                gamesLost: hasWon && data.move.color === "red" ? 1 : 0,
+                                gamesWon: winnerId === game.guestId ? 1 : 0,
+                                gamesLost: loserId === game.guestId ? 1 : 0,
                                 piecesPlayed: guestPieces
                             }
                         });
                     }
+
+                    // Mise à jour de la partie avec winner/loser
+                    await prisma.game.update({
+                        where: { code: me.code },
+                        data: {
+                            winnerId,
+                            loserId,
+                        }
+                    });
                 }
+
 
                 // 6️⃣ Envoie la grille mise à jour à tous les joueurs
                 const updatedGame = await prisma.game.findUnique({ where: { code: me.code } });
