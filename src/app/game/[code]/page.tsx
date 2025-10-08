@@ -3,6 +3,7 @@
 import { useEffect, useState, useRef } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { useWS } from "@/context/WebSocketContext";
+import { useTheme } from "@/context/ThemeContext";
 
 type Cell = null | "red" | "yellow";
 const ROWS = 6;
@@ -12,6 +13,8 @@ export default function GamePage() {
     const router = useRouter();
     const params = useParams();
     const code = params.code as string;
+
+    const { theme } = useTheme();
 
     const [user, setUser] = useState<{ id: number; email: string } | null>(null);
     const [userLoading, setUserLoading] = useState(true);
@@ -26,7 +29,8 @@ export default function GamePage() {
     const [isHost, setIsHost] = useState(false);
 
     const [gameOver, setGameOver] = useState(false);
-    const [gameResult, setGameResult] = useState<string | null>(null);
+    const [winnerColor, setWinnerColor] = useState<"red" | "yellow" | null>(null);
+    const [draw, setDraw] = useState(false);
 
     const { send, addHandler, removeHandler, connected } = useWS();
     const joinedRef = useRef(false);
@@ -75,11 +79,15 @@ export default function GamePage() {
                 setBoard(game.board?.length ? game.board : Array.from({ length: ROWS }, () => Array(COLS).fill(null)));
                 setOpponent(isHostPlayer ? game.guest?.email : game.host?.email);
 
-                if (game.winner || game.draw) {
+                if (game.winner) {
                     setGameOver(true);
-                    setGameResult(game.winner ? `Le joueur ${game.winner} a gagné 🎉` : "Match nul 🤝");
+                    setWinnerColor(game.winner);
                 }
-            } catch (err) {
+                if (game.draw) {
+                    setGameOver(true);
+                    setDraw(true);
+                }
+            } catch {
                 alert("Erreur lors du chargement de la partie.");
             } finally {
                 setGameLoading(false);
@@ -100,9 +108,14 @@ export default function GamePage() {
             if (data.opponent) setOpponent(data.opponent);
             if (gameLoading) setGameLoading(false);
 
-            if (data.winner || data.draw) {
+            if (data.winner) {
                 setGameOver(true);
-                setGameResult(data.winner ? `Le joueur ${data.winner} a gagné 🎉` : "Match nul 🤝");
+                setWinnerColor(data.winner);
+                setIsMyTurn(false);
+            }
+            if (data.draw) {
+                setGameOver(true);
+                setDraw(true);
                 setIsMyTurn(false);
             }
         };
@@ -118,56 +131,80 @@ export default function GamePage() {
     }, [user, code, addHandler, removeHandler, send, isHost, gameLoading]);
 
     const handlePlayMove = (col: number) => {
-        if (!isMyTurn) return;
-        if (gameOver) return;
-
-        if (board[0][col] !== null) {
-            console.log("Colonne pleine, impossible de jouer ici.");
-            return;
-        }
-
+        if (!isMyTurn || gameOver) return;
+        if (board[0][col] !== null) return;
         send({ type: "playMove", move: { col, color: myColor } });
         setIsMyTurn(false);
     };
 
+    if (userLoading) return <p className={`${theme.text} p-4`}>Chargement utilisateur...</p>;
+    if (gameLoading) return <p className={`${theme.text} p-4`}>Chargement de la partie...</p>;
 
-    if (userLoading) return <p>Chargement utilisateur...</p>;
-    if (gameLoading) return <p>Chargement de la partie...</p>;
+    const getResultMessage = () => {
+        if (draw) return "Match nul 🤝";
+        if (!winnerColor) return null;
+        return winnerColor === myColor ? "Vous avez gagné ! 🎉" : "Vous avez perdu...";
+    };
 
     return (
-        <div className="min-h-screen bg-gray-100 flex flex-col items-center p-8 text-black">
-            <h1 className="text-2xl font-bold mb-2">Partie {code}</h1>
-            <p className="mb-4">
-                Adversaire : {opponent ?? "En attente..."} — {isMyTurn ? "Votre tour" : "Tour adverse"}
+        <div className={`min-h-screen flex flex-col items-center p-8 ${theme.background} ${theme.text} ${theme.font ?? ""}`}>
+            {/* Titre */}
+            <h1 className={`text-3xl font-extrabold mb-2 ${theme.text}`}>Partie {code}</h1>
+
+            {/* Info adversaire et tour */}
+            <p className="mb-2 text-lg">
+                Adversaire : <span className={`${theme.text} text-cyan-400`}>{opponent ?? "En attente..."}</span> —{" "}
+                <span className={isMyTurn ? "text-green-400" : "text-red-400"}>
+                    {isMyTurn ? "Votre tour" : "Tour adverse"}
+                </span>
             </p>
 
-            <div className="grid grid-rows-6 grid-cols-7 gap-1 p-2 rounded-lg bg-blue-500">
+            {/* Indicateur couleur joueur */}
+            <div className="mb-6 flex items-center gap-2 text-lg font-semibold">
+                <span>Votre couleur :</span>
+                <div
+                    className={`w-6 h-6 rounded-full shadow-md ${
+                        myColor === "red" ? theme.red + " " + theme.redGlow : theme.yellow + " " + theme.yellowGlow
+                    }`}
+                ></div>
+                <span className={`font-bold ${myColor === "red" ? theme.red : theme.yellow}`}>
+                    {myColor.toUpperCase()}
+                </span>
+            </div>
+
+            {/* Plateau */}
+            <div className={`${theme.board} grid grid-rows-6 grid-cols-7 gap-2 p-3 rounded-xl shadow-inner border-4 border-gray-700`}>
                 {board.map((row, r) =>
                     row.map((cell, c) => (
                         <div
                             key={`${r}-${c}`}
-                            className={`w-12 h-12 rounded-full flex items-center justify-center cursor-pointer ${
-                                gameOver ? "cursor-not-allowed" : ""
-                            } bg-gray-200`} // <-- Toujours gris si vide
+                            className={`w-14 h-14 rounded-full flex items-center justify-center cursor-pointer transition transform ${
+                                !gameOver && isMyTurn ? "hover:scale-110" : ""
+                            }`}
                             onClick={() => handlePlayMove(c)}
                         >
-                            {cell && (
-                                <div
-                                    className={`w-10 h-10 rounded-full ${
-                                        cell === "red" ? "bg-red-500" : "bg-yellow-400"
-                                    }`}
-                                ></div>
-                            )}
+                            <div className={`w-full h-full rounded-full flex items-center justify-center ${theme.emptyCell}`}>
+                                {cell && (
+                                    <div
+                                        className={`w-12 h-12 rounded-full shadow-xl ${
+                                            cell === "red"
+                                                ? theme.red + " " + theme.redGlow
+                                                : theme.yellow + " " + theme.yellowGlow
+                                        }`}
+                                    ></div>
+                                )}
+                            </div>
                         </div>
                     ))
                 )}
             </div>
 
+            {/* Game over */}
             {gameOver && (
-                <div className="mt-4 flex flex-col items-center">
-                    <p className="text-lg font-semibold">{gameResult}</p>
+                <div className={`${theme.board} mt-6 flex flex-col items-center p-4 rounded-xl shadow-lg border border-gray-700`}>
+                    <p className={`text-2xl font-bold ${theme.text}`}>{getResultMessage()}</p>
                     <button
-                        className="mt-2 px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700"
+                        className={`${theme.button} ${theme.buttonHover} mt-4 px-6 py-2 rounded-lg shadow transition transform hover:-translate-y-0.5`}
                         onClick={() => router.push("/lobby")}
                     >
                         Retour au lobby
@@ -175,7 +212,10 @@ export default function GamePage() {
                 </div>
             )}
 
-            <p className="mt-4 text-sm text-gray-500">WS: {connected ? "connecté" : "déconnecté"}</p>
+            {/* WS status */}
+            <p className="mt-6 text-sm">
+                WS: {connected ? <span className="text-green-400">connecté</span> : <span className="text-red-400">déconnecté</span>}
+            </p>
         </div>
     );
 }

@@ -1,4 +1,9 @@
 @import "tailwindcss";
+@import url('https://fonts.cdnfonts.com/css/minecraftia');
+
+.font-retro {
+    font-family: 'Minecraftia', monospace;
+}
 
 :root {
   --background: #ffffff;

@@ -111,18 +111,33 @@ function setupWebSocketServer(server) {
             if (data.type === "joinLobby") {
                 const code = data.code?.trim().toUpperCase();
                 const game = await prisma.game.findUnique({ where: { code } });
-                if (!game || game.guestId) return ws.send(JSON.stringify({ type:"error", message:"Lobby introuvable ou complet" }));
 
+                // --- Si le lobby n'existe pas ou déjà complet
+                if (!game || game.guestId) {
+                    return ws.send(JSON.stringify({ type: "error", message: "Lobby introuvable ou complet" }));
+                }
+
+                // --- 🚫 Si le joueur essaie de rejoindre un lobby dont il est déjà membre (host ou guest)
+                if (game.hostId === ws.user.id || game.guestId === ws.user.id) {
+                    return ws.send(JSON.stringify({ type: "error", message: "Lobby introuvable ou complet" }));
+                }
+
+                // --- Récupération du host
                 const hostWs = [...players.entries()].find(([, p]) => p.code === code && p.isHost)?.[0];
-                if (!hostWs) return ws.send(JSON.stringify({ type:"error", message:"Host introuvable" }));
+                if (!hostWs) {
+                    return ws.send(JSON.stringify({ type: "error", message: "Host introuvable" }));
+                }
 
+                // --- Mise à jour du lobby en DB
                 await prisma.game.update({ where: { code }, data: { guestId: ws.user.id } });
                 const hostInfo = players.get(hostWs);
                 players.set(ws, { ...me, code, isHost: false });
 
-                hostWs.send(JSON.stringify({ type:"guestJoined", code, guest: ws.user.email }));
-                ws.send(JSON.stringify({ type:"joinedLobby", code, host: hostInfo.email }));
+                // --- Notifie les deux
+                hostWs.send(JSON.stringify({ type: "guestJoined", code, guest: ws.user.email }));
+                ws.send(JSON.stringify({ type: "joinedLobby", code, host: hostInfo.email }));
             }
+
 
             // --- START GAME
             if (data.type === "startGame") {

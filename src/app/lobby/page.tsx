@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useWS } from "@/context/WebSocketContext";
+import {useTheme} from "@/context/ThemeContext";
 
 type Stats = {
     gamesPlayed: number;
@@ -32,6 +33,7 @@ export default function LobbyPage() {
     const [error, setError] = useState<string | null>(null);
     const [lobby, setLobby] = useState<LobbyState>({ mode: "stats" });
     const [isHost, setIsHost] = useState<boolean | null>(null);
+    const [themeMenuOpen, setThemeMenuOpen] = useState(false);
 
     const { send, addHandler, removeHandler, connected } = useWS();
 
@@ -60,7 +62,7 @@ export default function LobbyPage() {
                 }
             } catch (err: any) {
                 setError(err.message || "Erreur");
-                setTimeout(() => (window.location.href = "/auth"), 1500);
+                setTimeout(() => (window.location.href = "/auth"), 150);
             }
         };
         fetchUserData();
@@ -131,129 +133,198 @@ export default function LobbyPage() {
 
     const onStartGame = () => send({ type: "startGame" });
 
+    const onChangeTheme = async (theme: "default" | "arcade" | "retro") => {
+        try {
+            await fetch("/api/user/theme", {
+                method: "POST",
+                credentials: "include",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ theme }),
+            });
+            window.location.reload(); // recharge pour appliquer le thème
+        } catch (err) {
+            console.error("Impossible de changer le thème", err);
+        }
+    };
+
     if (error) return <p className="text-red-500 p-4">{error}</p>;
     if (!user) return <p className="p-4">Chargement...</p>;
 
+    const { theme } = useTheme();
+
     return (
-        <div className="min-h-screen bg-gray-100 text-black">
+        <div className={`min-h-screen ${theme.background} ${theme.text} ${theme.font || ''}`}>
+
             {/* Header */}
-            <header className="flex justify-between items-center bg-white shadow-md p-4 sticky top-0 z-10">
-                <h1 className="text-xl font-bold">Bienvenue, {user.email}</h1>
-                <div className="flex gap-4 items-center">
+            <header className={`flex flex-col md:flex-row justify-between items-center ${theme.board} shadow-md p-6 sticky top-0 z-20 rounded-b-lg`}>
+                <h1 className="text-2xl md:text-3xl font-extrabold mb-3 md:mb-0">
+                    Bienvenue, <span className={theme.text}>{user.email}</span>
+                </h1>
+                <div className="flex flex-wrap gap-3 items-center relative">
                     <button
                         onClick={onClickCreate}
-                        className="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700 transition"
+                        className={`${theme.button} ${theme.buttonHover} px-5 py-2 rounded-lg shadow transition transform hover:-translate-y-0.5`}
                     >
                         Créer une partie
                     </button>
-
                     <button
                         onClick={onClickShowJoin}
-                        className="bg-green-600 text-white px-4 py-2 rounded hover:bg-green-700 transition"
+                        className={`${theme.button} ${theme.buttonHover} px-5 py-2 rounded-lg shadow transition transform hover:-translate-y-0.5`}
                     >
                         Rejoindre une partie
                     </button>
-
                     <button
                         onClick={() => setLobby({ mode: "stats" })}
-                        className="bg-gray-600 text-white px-4 py-2 rounded hover:bg-gray-700 transition"
+                        className={`${theme.button} ${theme.buttonHover} px-5 py-2 rounded-lg shadow transition transform hover:-translate-y-0.5`}
                     >
                         Stats
                     </button>
-
-                    <span className="text-sm text-gray-500">
-            {connected ? "WS: connecté" : "WS: déconnecté"}
+                    <button
+                        onClick={() => setThemeMenuOpen(prev => !prev)}
+                        className={`${theme.button} ${theme.buttonHover} px-5 py-2 rounded-lg shadow transition transform hover:-translate-y-0.5`}
+                    >
+                        Thèmes
+                    </button>
+                    <button
+                        onClick={async () => {
+                            try {
+                                await fetch("/api/auth/logout", { method: "POST", credentials: "include" });
+                            } finally {
+                                window.location.href = "/auth";
+                            }
+                        }}
+                        className={`${theme.button} ${theme.buttonHover} px-5 py-2 rounded-lg shadow transition transform hover:-translate-y-0.5`}
+                    >
+                        Se déconnecter
+                    </button>
+                    <span className={`text-sm font-medium ${connected ? "text-green-400" : "text-red-400"}`}>
+          {connected ? "WS: connecté" : "WS: déconnecté"}
         </span>
+
+                    {/* Menu Thèmes */}
+                    {themeMenuOpen && (
+                        <div className={`absolute top-full right-0 mt-2 ${theme.board} border border-gray-700 rounded-lg shadow-lg p-3 flex flex-col gap-2 z-50`}>
+                            {["default", "arcade", "retro"].map(t => (
+                                <button
+                                    key={t}
+                                    onClick={() => onChangeTheme(t as "default" | "arcade" | "retro")}
+                                    className={`${theme.button} ${theme.buttonHover} px-4 py-2 rounded-lg transition`}
+                                >
+                                    {t.charAt(0).toUpperCase() + t.slice(1)}
+                                </button>
+                            ))}
+                        </div>
+                    )}
                 </div>
             </header>
 
-
             {/* Main */}
-            <main className="p-8">
-                {lobby.mode === "creating" ? (
-                    <div className="max-w-md mx-auto bg-white p-6 rounded shadow text-center">
-                        <h2 className="text-2xl font-bold mb-2">Partie créée</h2>
-                        <p className="mb-2">Code : <span className="font-mono">{lobby.code ?? "—"}</span></p>
-                        <p>Joueurs présents :</p>
-                        <ul>{lobby.players.map(p => <li key={p}>{p}</li>)}</ul>
-                        <p className="mt-2">Status : {lobby.status === "waiting" ? "En attente" : "Prêt"}</p>
+            <main className="p-8 max-w-6xl mx-auto">
+                {/* Création / Rejoindre */}
+                {lobby.mode === "creating" && (
+                    <div className={`${theme.board} max-w-md mx-auto rounded-xl shadow-lg p-6 text-center border border-gray-700`}>
+                        <h2 className={`text-3xl font-bold mb-3 ${theme.text}`}>Partie créée</h2>
+                        <p className="mb-2 text-lg">
+                            Code : <span className="font-mono">{lobby.code ?? "—"}</span>
+                        </p>
+                        <p className="mb-2 font-medium">Joueurs présents :</p>
+                        <ul className="mb-2 space-y-1">
+                            {lobby.players.map(p => (
+                                <li key={p} className={`${theme.emptyCell} py-1 rounded`}>{p}</li>
+                            ))}
+                        </ul>
+                        <p className="mb-4 font-semibold">
+                            Status : <span className="capitalize">{lobby.status}</span>
+                        </p>
                         {isHost && lobby.status === "ready" && (
-                            <button onClick={onStartGame} className="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700 transition mt-4">Démarrer la partie</button>
+                            <button
+                                onClick={onStartGame}
+                                className={`${theme.button} ${theme.buttonHover} px-6 py-2 rounded-lg shadow transition transform hover:-translate-y-0.5`}
+                            >
+                                Démarrer la partie
+                            </button>
                         )}
                     </div>
-                ) : lobby.mode === "joining" ? (
-                    <div className="max-w-md mx-auto bg-white p-6 rounded shadow text-center">
-                        <h2 className="text-2xl font-bold mb-2">Rejoindre une partie</h2>
+                )}
+
+                {lobby.mode === "joining" && (
+                    <div className={`${theme.board} max-w-md mx-auto rounded-xl shadow-lg p-6 text-center border border-gray-700`}>
+                        <h2 className={`text-3xl font-bold mb-3 ${theme.text}`}>Rejoindre une partie</h2>
                         <input
-                            className="border p-2 rounded w-full text-center mb-3"
+                            className={`border rounded-lg p-3 w-full text-center mb-4 ${theme.emptyCell} ${theme.text} placeholder-gray-400 focus:ring-2 focus:ring-indigo-500 outline-none transition`}
                             placeholder="Code de la partie"
                             value={lobby.codeInput}
                             onChange={e => setLobby({ ...lobby, codeInput: e.target.value.toUpperCase() })}
                         />
-                        <div className="flex gap-2 justify-center">
-                            <button onClick={() => onJoinSubmit(lobby.codeInput)} className="bg-green-600 text-white px-4 py-2 rounded hover:bg-green-700 transition">Rejoindre</button>
-                        </div>
-                        {lobby.status === "not-found" && <p className="text-red-500 mt-3">Lobby introuvable</p>}
+                        <button
+                            onClick={() => onJoinSubmit(lobby.codeInput)}
+                            className={`${theme.button} ${theme.buttonHover} px-6 py-2 rounded-lg shadow transition transform hover:-translate-y-0.5`}
+                        >
+                            Rejoindre
+                        </button>
+                        {lobby.status === "not-found" && <p className="text-red-500 mt-3 font-semibold">Lobby introuvable</p>}
                     </div>
-                ) : (
+                )}
+
+                {/* Stats & Historique */}
+                {lobby.mode === "stats" && (
                     <>
-                        {/* Stats */}
-                        <h2 className="text-2xl font-bold mb-4">Vos statistiques</h2>
+                        <h2 className={`text-3xl font-extrabold mb-6 ${theme.text}`}>Vos statistiques</h2>
                         {statsError ? (
                             <p className="text-red-500">Impossible de récupérer les stats</p>
                         ) : !stats ? (
                             <p>Chargement des stats...</p>
                         ) : (
-                            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                                <div className="bg-white p-4 rounded shadow"><p>Parties jouées</p><p className="text-xl font-bold">{stats.gamesPlayed}</p></div>
-                                <div className="bg-white p-4 rounded shadow"><p>Parties gagnées</p><p className="text-xl font-bold">{stats.gamesWon}</p></div>
-                                <div className="bg-white p-4 rounded shadow"><p>Parties perdues</p><p className="text-xl font-bold">{stats.gamesLost}</p></div>
-                                <div className="bg-white p-4 rounded shadow"><p>Pièces jouées</p><p className="text-xl font-bold">{stats.piecesPlayed}</p></div>
+                            <div className="grid grid-cols-2 md:grid-cols-4 gap-6">
+                                {[
+                                    { label: "Parties terminées", value: stats.gamesPlayed },
+                                    { label: "Parties gagnées", value: stats.gamesWon },
+                                    { label: "Parties perdues", value: stats.gamesLost },
+                                    { label: "Pièces jouées", value: stats.piecesPlayed },
+                                ].map(stat => (
+                                    <div key={stat.label} className={`${theme.board} p-6 rounded-xl shadow-lg text-center border border-gray-700 hover:scale-105 transform transition`}>
+                                        <p className={`${theme.text}`}>{stat.label}</p>
+                                        <p className={`text-2xl font-bold mt-2`}>{stat.value}</p>
+                                    </div>
+                                ))}
                             </div>
                         )}
 
-                        {/* Historique */}
-                        <div className="mt-8">
-                            <h2 className="text-2xl font-bold mb-4">Historique des parties</h2>
+                        <div className="mt-12">
+                            <h2 className={`text-3xl font-extrabold mb-4 ${theme.text}`}>Historique des parties</h2>
                             {games.filter(g => g.opponentEmail !== "Inconnu").length === 0 ? (
                                 <p>Aucune partie jouée.</p>
                             ) : (
-                                <table className="min-w-full bg-white shadow rounded overflow-hidden">
-                                    <thead>
-                                    <tr className="bg-gray-200">
-                                        <th className="p-3 text-left">Adversaire</th>
-                                        <th className="p-3 text-left">Résultat</th>
-                                        <th className="p-3 text-left">Date</th>
-                                    </tr>
-                                    </thead>
-                                    <tbody>
-                                    {games
-                                        .filter(g => g.opponentEmail !== "Inconnu")
-                                        .map(game => {
+                                <div className="overflow-x-auto rounded-xl shadow-lg border border-gray-700">
+                                    <table className={`${theme.board} min-w-full rounded-lg text-gray-100`}>
+                                        <thead className="bg-gray-700 text-left">
+                                        <tr>
+                                            <th className="p-4">Adversaire</th>
+                                            <th className="p-4">Résultat</th>
+                                            <th className="p-4">Date</th>
+                                        </tr>
+                                        </thead>
+                                        <tbody>
+                                        {games.filter(g => g.opponentEmail !== "Inconnu").map(game => {
                                             const resultLabel =
-                                                game.result === "win"
-                                                    ? "Victoire"
-                                                    : game.result === "loss"
-                                                        ? "Défaite"
-                                                        : "Match nul";
-
+                                                game.result === "win" ? "Victoire" :
+                                                    game.result === "loss" ? "Défaite" : "Match nul";
                                             const resultColor =
-                                                game.result === "win"
-                                                    ? "text-green-600 font-semibold"
-                                                    : game.result === "loss"
-                                                        ? "text-red-600 font-semibold"
-                                                        : "text-gray-500 font-medium";
+                                                game.result === "win" ? "text-green-400 font-semibold" :
+                                                    game.result === "loss" ? "text-red-400 font-semibold" :
+                                                        "text-gray-400 font-medium";
 
                                             return (
-                                                <tr key={game.code} className="border-t hover:bg-gray-50 transition">
-                                                    <td className="p-3">{game.opponentEmail}</td>
-                                                    <td className={`p-3 capitalize ${resultColor}`}>{resultLabel}</td>
-                                                    <td className="p-3">{new Date(game.createdAt).toLocaleString()}</td>
+                                                <tr key={game.code} className="border-t border-gray-700 hover:bg-gray-700 transition">
+                                                    <td className="p-4">{game.opponentEmail}</td>
+                                                    <td className={`p-4 capitalize ${resultColor}`}>{resultLabel}</td>
+                                                    <td className="p-4">{new Date(game.createdAt).toLocaleString()}</td>
                                                 </tr>
                                             );
                                         })}
-                                    </tbody>
-                                </table>
+                                        </tbody>
+                                    </table>
+                                </div>
                             )}
                         </div>
                     </>
@@ -261,4 +332,5 @@ export default function LobbyPage() {
             </main>
         </div>
     );
+
 }

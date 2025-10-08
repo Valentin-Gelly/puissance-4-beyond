@@ -21,6 +21,8 @@ model User {
 
   wonGames  Game[]    @relation("Winner")
   lostGames Game[]    @relation("Loser")
+
+  theme      String   @default("default")
 }
 
 model Stats {
