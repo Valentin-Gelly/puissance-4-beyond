@@ -154,16 +154,15 @@ function setupWebSocketServer(server) {
             }
 
             // --- PLAY MOVE
+            // --- PLAY MOVE
             if (data.type === "playMove") {
                 // 1️⃣ Récupère la partie depuis la DB
                 const game = await prisma.game.findUnique({ where: { code: me.code } });
                 if (!game) return ws.send(JSON.stringify({ type: "error", message: "Partie introuvable" }));
                 if (game.nextToPlay !== ws.user.id) return ws.send(JSON.stringify({ type: "error", message: "Ce n’est pas votre tour." }));
 
-                // 2️⃣ Clone la grille depuis la DB
+                // 2️⃣ Applique le coup sur la grille actuelle de la DB
                 const board = game.board.map(row => [...row]);
-
-                // 3️⃣ Applique le coup
                 for (let row = ROWS - 1; row >= 0; row--) {
                     if (!board[row][data.move.col]) {
                         board[row][data.move.col] = data.move.color;
@@ -171,27 +170,28 @@ function setupWebSocketServer(server) {
                     }
                 }
 
-                // 4️⃣ Vérifie victoire / match nul
+                // 3️⃣ Vérifie victoire / match nul
                 const hasWon = checkWin(board, data.move.color);
                 const isDraw = !hasWon && checkDraw(board);
                 const nextId = hasWon || isDraw ? null : (ws.user.id === game.hostId ? game.guestId : game.hostId);
 
-                // 5️⃣ Update DB avec la nouvelle grille
+                // 4️⃣ Mets à jour la DB
                 await prisma.game.update({
                     where: { code: me.code },
                     data: { board, nextToPlay: nextId, turn: { increment: 1 } }
                 });
 
-                // 6️⃣ Récupère la grille depuis la DB pour être sûr que tout est à jour
+                // 5️⃣ Récupère la grille depuis la DB pour être sûr
                 const updatedGame = await prisma.game.findUnique({ where: { code: me.code } });
-                const boardClone = updatedGame.board.map(row => [...row]);
+                // ⚠️ Assure-toi que c’est un vrai tableau
+                const boardFromDb = Array.isArray(updatedGame.board) ? updatedGame.board : JSON.parse(updatedGame.board);
 
-                // 7️⃣ Envoie à tous les joueurs
+                // 6️⃣ Envoie à tous les joueurs exactement comme F5
                 for (const [s, p] of players.entries()) {
                     if (p.code === me.code) {
                         s.send(JSON.stringify({
                             type: "movePlayed",
-                            board: boardClone,
+                            board: boardFromDb,
                             isMyTurn: !hasWon && !isDraw && s.user.id === nextId,
                             winner: hasWon ? data.move.color : null,
                             draw: isDraw

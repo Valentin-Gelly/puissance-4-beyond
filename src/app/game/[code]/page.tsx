@@ -110,12 +110,15 @@ export default function GamePage() {
                 case "gameStarted":
                 case "movePlayed":
                     if (data.board) {
-                        // ✅ clone complet pour forcer rerender
-                        setBoard(data.board.map(row => [...row]));
+                        // clone profond pour forcer React à rerender
+                        setBoard(structuredClone(data.board));
                     }
                     if (data.color) setMyColor(data.color);
                     if (data.isMyTurn !== undefined) setIsMyTurn(data.isMyTurn);
                     if (data.opponent) setOpponent(data.opponent);
+
+                    // débloque le rendu si c’était en chargement
+                    if (gameLoading) setGameLoading(false);
                     break;
 
                 case "error":
