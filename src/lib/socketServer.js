@@ -154,18 +154,19 @@ function setupWebSocketServer(server) {
             }
 
             // --- PLAY MOVE
-            // --- PLAY MOVE
             if (data.type === "playMove") {
                 // 1️⃣ Récupère la partie depuis la DB
                 const game = await prisma.game.findUnique({ where: { code: me.code } });
                 if (!game) return ws.send(JSON.stringify({ type: "error", message: "Partie introuvable" }));
                 if (game.nextToPlay !== ws.user.id) return ws.send(JSON.stringify({ type: "error", message: "Ce n’est pas votre tour." }));
 
-                // 2️⃣ Applique le coup sur la grille actuelle de la DB
+                // 2️⃣ Applique le coup
                 const board = game.board.map(row => [...row]);
+                let piecesPlayedByCurrentMove = 0;
                 for (let row = ROWS - 1; row >= 0; row--) {
                     if (!board[row][data.move.col]) {
                         board[row][data.move.col] = data.move.color;
+                        piecesPlayedByCurrentMove++;
                         break;
                     }
                 }
@@ -175,18 +176,60 @@ function setupWebSocketServer(server) {
                 const isDraw = !hasWon && checkDraw(board);
                 const nextId = hasWon || isDraw ? null : (ws.user.id === game.hostId ? game.guestId : game.hostId);
 
-                // 4️⃣ Mets à jour la DB
+                // 4️⃣ Mets à jour la DB avec le coup
                 await prisma.game.update({
                     where: { code: me.code },
                     data: { board, nextToPlay: nextId, turn: { increment: 1 } }
                 });
 
-                // 5️⃣ Récupère la grille depuis la DB pour être sûr
+                // 5️⃣ Mets à jour les stats si la partie est terminée
+                if (hasWon || isDraw) {
+                    const hostPieces = board.flat().filter(c => c === "red").length;
+                    const guestPieces = board.flat().filter(c => c === "yellow").length;
+
+                    // --- Host
+                    await prisma.stats.upsert({
+                        where: { userId: game.hostId },
+                        update: {
+                            gamesPlayed: { increment: 1 },
+                            gamesWon: { increment: hasWon && data.move.color === "red" ? 1 : 0 },
+                            gamesLost: { increment: hasWon && data.move.color === "yellow" ? 1 : 0 },
+                            piecesPlayed: { increment: hostPieces }
+                        },
+                        create: {
+                            userId: game.hostId,
+                            gamesPlayed: 1,
+                            gamesWon: hasWon && data.move.color === "red" ? 1 : 0,
+                            gamesLost: hasWon && data.move.color === "yellow" ? 1 : 0,
+                            piecesPlayed: hostPieces
+                        }
+                    });
+
+                    // --- Guest
+                    if (game.guestId) {
+                        await prisma.stats.upsert({
+                            where: { userId: game.guestId },
+                            update: {
+                                gamesPlayed: { increment: 1 },
+                                gamesWon: { increment: hasWon && data.move.color === "yellow" ? 1 : 0 },
+                                gamesLost: { increment: hasWon && data.move.color === "red" ? 1 : 0 },
+                                piecesPlayed: { increment: guestPieces }
+                            },
+                            create: {
+                                userId: game.guestId,
+                                gamesPlayed: 1,
+                                gamesWon: hasWon && data.move.color === "yellow" ? 1 : 0,
+                                gamesLost: hasWon && data.move.color === "red" ? 1 : 0,
+                                piecesPlayed: guestPieces
+                            }
+                        });
+                    }
+                }
+
+                // 6️⃣ Envoie la grille mise à jour à tous les joueurs
                 const updatedGame = await prisma.game.findUnique({ where: { code: me.code } });
-                // ⚠️ Assure-toi que c’est un vrai tableau
                 const boardFromDb = Array.isArray(updatedGame.board) ? updatedGame.board : JSON.parse(updatedGame.board);
 
-                // 6️⃣ Envoie à tous les joueurs exactement comme F5
                 for (const [s, p] of players.entries()) {
                     if (p.code === me.code) {
                         s.send(JSON.stringify({
@@ -199,6 +242,7 @@ function setupWebSocketServer(server) {
                     }
                 }
             }
+
 
         });
 
