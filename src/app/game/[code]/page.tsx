@@ -120,9 +120,16 @@ export default function GamePage() {
     const handlePlayMove = (col: number) => {
         if (!isMyTurn) return;
         if (gameOver) return;
+
+        if (board[0][col] !== null) {
+            console.log("Colonne pleine, impossible de jouer ici.");
+            return;
+        }
+
         send({ type: "playMove", move: { col, color: myColor } });
         setIsMyTurn(false);
     };
+
 
     if (userLoading) return <p>Chargement utilisateur...</p>;
     if (gameLoading) return <p>Chargement de la partie...</p>;

@@ -140,11 +140,33 @@ export default function LobbyPage() {
             <header className="flex justify-between items-center bg-white shadow-md p-4 sticky top-0 z-10">
                 <h1 className="text-xl font-bold">Bienvenue, {user.email}</h1>
                 <div className="flex gap-4 items-center">
-                    <button onClick={onClickCreate} className="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700 transition">Créer une partie</button>
-                    <button onClick={onClickShowJoin} className="bg-green-600 text-white px-4 py-2 rounded hover:bg-green-700 transition">Rejoindre une partie</button>
-                    <span className="text-sm text-gray-500">{connected ? "WS: connecté" : "WS: déconnecté"}</span>
+                    <button
+                        onClick={onClickCreate}
+                        className="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700 transition"
+                    >
+                        Créer une partie
+                    </button>
+
+                    <button
+                        onClick={onClickShowJoin}
+                        className="bg-green-600 text-white px-4 py-2 rounded hover:bg-green-700 transition"
+                    >
+                        Rejoindre une partie
+                    </button>
+
+                    <button
+                        onClick={() => setLobby({ mode: "stats" })}
+                        className="bg-gray-600 text-white px-4 py-2 rounded hover:bg-gray-700 transition"
+                    >
+                        Stats
+                    </button>
+
+                    <span className="text-sm text-gray-500">
+            {connected ? "WS: connecté" : "WS: déconnecté"}
+        </span>
                 </div>
             </header>
+
 
             {/* Main */}
             <main className="p-8">
