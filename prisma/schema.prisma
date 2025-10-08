@@ -15,6 +15,9 @@ model User {
   verificationToken  String?  @unique
   createdAt          DateTime @default(now())
   stats              Stats?
+
+  hostGames  Game[]   @relation("HostGames")
+  guestGames Game[]   @relation("GuestGames")
 }
 
 model Stats {
@@ -26,4 +29,19 @@ model Stats {
   piecesPlayed Int    @default(0)
 
   user         User   @relation(fields: [userId], references: [id])
+}
+
+model Game {
+  id         Int       @id @default(autoincrement())
+  code       String    @unique
+  hostId     Int
+  guestId    Int?
+  nextToPlay Int?      // l'id du joueur qui doit jouer ce tour
+  turn       Int       @default(0)
+  board      Json      @default("[]") // [[null,...],[...],...]
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+
+  host       User      @relation("HostGames", fields: [hostId], references: [id])
+  guest      User?     @relation("GuestGames", fields: [guestId], references: [id])
 }
