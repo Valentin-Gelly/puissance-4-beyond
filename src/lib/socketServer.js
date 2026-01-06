@@ -319,6 +319,7 @@ function setupWebSocketServer(server) {
                         return ws.send(JSON.stringify({ type: "error", message: "Cette cellule est déjà vide !" }));
                     }
 
+                    // Supprime la pièce
                     board[row][col] = null;
 
                     // Descente des pièces
@@ -333,22 +334,40 @@ function setupWebSocketServer(server) {
                         }
                     }
 
-                    // Update DB
+                    // Vérification victoire / match nul
+                    const redWin = checkWin(board, "red");
+                    const yellowWin = checkWin(board, "yellow");
+                    const isDraw = !redWin && !yellowWin && checkDraw(board);
+
+                    let winnerId = null;
+                    let loserId = null;
+                    let nextToPlay = null;
+
+                    if (redWin || yellowWin) {
+                        const winnerColor = redWin ? "red" : "yellow";
+                        winnerId = winnerColor === "red" ? game.hostId : game.guestId;
+                        loserId  = winnerColor === "red" ? game.guestId : game.hostId;
+                    } else if (!isDraw) {
+                        nextToPlay = isHost ? game.guestId : game.hostId;
+                    }
+
+                    // Mise à jour DB
                     await prisma.game.update({
                         where: { code: me.code },
                         data: {
                             board,
-                            nextToPlay: isHost ? game.guestId : game.hostId,
+                            nextToPlay,
                             turn: { increment: 1 },
+                            winnerId,
+                            loserId,
                             ...(isHost ? { hostBombUsed: true } : { guestBombUsed: true })
                         }
                     });
 
-                    // --- UPDATE STATS
+                    // Stats
                     await incrementPiecesPlayed(ws.user.id);
 
                     const updatedGame = await prisma.game.findUnique({ where: { code: me.code } });
-                    const boardFromDb = Array.isArray(updatedGame.board) ? updatedGame.board : JSON.parse(updatedGame.board);
 
                     for (const [s, p] of players.entries()) {
                         if (p.code === me.code) {
@@ -356,8 +375,10 @@ function setupWebSocketServer(server) {
                             s.send(JSON.stringify({
                                 type: "specialMoveUsed",
                                 moveType: "bombe",
-                                board: boardFromDb,
-                                isMyTurn: s.user.id === updatedGame.nextToPlay,
+                                board: updatedGame.board,
+                                isMyTurn: !winnerId && !isDraw && s.user.id === updatedGame.nextToPlay,
+                                winner: winnerId ? (winnerId === updatedGame.hostId ? "red" : "yellow") : null,
+                                draw: isDraw,
                                 bombUsed: isSelf
                             }));
                         }
@@ -376,27 +397,45 @@ function setupWebSocketServer(server) {
                         message: "Colonne invalide"
                     }));
 
-                    // Supprime la colonne choisie
+                    // Supprime toute la colonne
                     for (let r = 0; r < ROWS; r++) {
                         board[r][col] = null;
                     }
 
-                    // Update DB
+                    // Vérification victoire / match nul
+                    const redWin = checkWin(board, "red");
+                    const yellowWin = checkWin(board, "yellow");
+                    const isDraw = !redWin && !yellowWin && checkDraw(board);
+
+                    let winnerId = null;
+                    let loserId = null;
+                    let nextToPlay = null;
+
+                    if (redWin || yellowWin) {
+                        const winnerColor = redWin ? "red" : "yellow";
+                        winnerId = winnerColor === "red" ? game.hostId : game.guestId;
+                        loserId  = winnerColor === "red" ? game.guestId : game.hostId;
+                    } else if (!isDraw) {
+                        nextToPlay = isHost ? game.guestId : game.hostId;
+                    }
+
+                    // Mise à jour DB
                     await prisma.game.update({
                         where: { code: me.code },
                         data: {
                             board,
-                            nextToPlay: isHost ? game.guestId : game.hostId,
+                            nextToPlay,
                             turn: { increment: 1 },
+                            winnerId,
+                            loserId,
                             ...(isHost ? { hostLaserUsed: true } : { guestLaserUsed: true })
                         }
                     });
 
-                    // --- UPDATE STATS
+                    // Stats
                     await incrementPiecesPlayed(ws.user.id);
 
                     const updatedGame = await prisma.game.findUnique({ where: { code: me.code } });
-                    const boardFromDb = Array.isArray(updatedGame.board) ? updatedGame.board : JSON.parse(updatedGame.board);
 
                     for (const [s, p] of players.entries()) {
                         if (p.code === me.code) {
@@ -404,15 +443,16 @@ function setupWebSocketServer(server) {
                             s.send(JSON.stringify({
                                 type: "specialMoveUsed",
                                 moveType: "laser",
-                                board: boardFromDb,
-                                isMyTurn: s.user.id === updatedGame.nextToPlay,
+                                board: updatedGame.board,
+                                isMyTurn: !winnerId && !isDraw && s.user.id === updatedGame.nextToPlay,
+                                winner: winnerId ? (winnerId === updatedGame.hostId ? "red" : "yellow") : null,
+                                draw: isDraw,
                                 laserUsed: isSelf
                             }));
                         }
                     }
                 }
 
-                // --- BACTERIE
                 // --- BACTERIE
                 if (move.type === "bacteria") {
                     if ((isHost && game.hostBacteriaUsed) || (!isHost && game.guestBacteriaUsed)) {
@@ -438,7 +478,6 @@ function setupWebSocketServer(server) {
                         }
                     }
 
-                    // 🔴 IMPORTANT : vérification victoire / nul
                     const redWin = checkWin(board, "red");
                     const yellowWin = checkWin(board, "yellow");
                     const isDraw = !redWin && !yellowWin && checkDraw(board);

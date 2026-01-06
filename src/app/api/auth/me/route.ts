@@ -1,14 +1,12 @@
-// app/api/auth/me/route.ts (Next.js 13+)
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import jwt from "jsonwebtoken";
-import { prisma } from "@/lib/prisma"; // ou ton ORM / DB client
+import { prisma } from "@/lib/prisma";
 
 const JWT_SECRET = process.env.JWT_SECRET!;
 
-export async function GET(req: Request) {
+export async function GET(req: NextRequest) {
     try {
-        const cookie = req.headers.get("cookie") || "";
-        const token = cookie.split("token=")[1]?.split(";")[0];
+        const token = req.cookies.get("token")?.value;
 
         if (!token) {
             return NextResponse.redirect("/auth"); // renvoi vers /auth si pas de token

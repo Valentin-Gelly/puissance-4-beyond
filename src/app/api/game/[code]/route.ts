@@ -1,18 +1,19 @@
-// app/api/game/[code]/route.ts
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import jwt from "jsonwebtoken";
 
 const JWT_SECRET = process.env.JWT_SECRET!;
 
-export async function GET(req: NextRequest, { params }: { params: { code: string } }) {
+export async function GET(
+    req: NextRequest,
+    { params }: { params: Promise<{ code: string }> }
+) {
     try {
         const token = req.cookies.get("token")?.value;
         if (!token) {
             return NextResponse.json({ error: "Non autorisé" }, { status: 401 });
         }
 
-        // Vérifier le token
         let decoded: any;
         try {
             decoded = jwt.verify(token, JWT_SECRET);
@@ -22,10 +23,11 @@ export async function GET(req: NextRequest, { params }: { params: { code: string
 
         const userId = decoded.id;
 
-        const code = params.code.toUpperCase();
+        const { code } = await params;
+        const upperCode = code.toUpperCase();
 
         const game = await prisma.game.findUnique({
-            where: { code },
+            where: { code: upperCode },
             include: {
                 host: { select: { email: true, id: true } },
                 guest: { select: { email: true, id: true } },

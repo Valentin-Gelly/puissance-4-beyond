@@ -1,12 +1,15 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 
-export async function GET(req: NextRequest, { params }: { params: { userId: string } }) {
-    const userId = Number(params.userId);
+export async function GET(
+    req: NextRequest,
+    { params }: { params: Promise<{ userId: string }> }
+) {
+    const { userId } = await params;
+    const numericUserId = Number(userId);
 
-    // Inclure le username au lieu de l'email
     const games = await prisma.game.findMany({
-        where: { OR: [{ hostId: userId }, { guestId: userId }] },
+        where: { OR: [{ hostId: numericUserId }, { guestId: numericUserId }] },
         include: {
             host: { select: { username: true } },
             guest: { select: { username: true } }
@@ -14,10 +17,8 @@ export async function GET(req: NextRequest, { params }: { params: { userId: stri
         orderBy: { createdAt: "desc" },
     });
 
-    // --- filtrer les parties non commencées
     const startedGames = games.filter(g => {
         if (!g.board || g.board.length === 0) return false;
-        // si toutes les cellules sont null
         const boardArray = Array.isArray(g.board) ? g.board : JSON.parse(g.board);
         return boardArray.some(row => row.some(cell => cell !== null));
     });
@@ -26,11 +27,11 @@ export async function GET(req: NextRequest, { params }: { params: { userId: stri
         let result: "win" | "loss" | "draw" = "draw";
 
         if (g.winnerId && g.loserId) {
-            if (g.winnerId === userId) result = "win";
-            else if (g.loserId === userId) result = "loss";
+            if (g.winnerId === numericUserId) result = "win";
+            else if (g.loserId === numericUserId) result = "loss";
         }
 
-        const opponentUsername = g.hostId === userId ? g.guest?.username : g.host?.username;
+        const opponentUsername = g.hostId === numericUserId ? g.guest?.username : g.host?.username;
 
         return {
             code: g.code,

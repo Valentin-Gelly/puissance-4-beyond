@@ -1,12 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
 import jwt from "jsonwebtoken";
-import { prisma } from "@/lib/prisma"; // ton client Prisma
+import { prisma } from "@/lib/prisma";
 
 const JWT_SECRET = process.env.JWT_SECRET!;
 
 async function getUserFromRequest(req: NextRequest) {
     try {
-        const token = req.headers.get("cookie")?.split("token=")[1]?.split(";")[0];
+        const token = req.cookies.get("token")?.value;
         if (!token) return null;
         const decoded = jwt.verify(token, JWT_SECRET) as { id: number; email: string };
         return decoded;
@@ -31,8 +31,7 @@ export async function POST(req: NextRequest) {
     const user = await getUserFromRequest(req);
     if (!user) return NextResponse.json({ error: "Non connecté" }, { status: 401 });
 
-    const body = await req.json();
-    const { theme } = body;
+    const { theme } = await req.json();
 
     if (!["default", "arcade", "retro"].includes(theme)) {
         return NextResponse.json({ error: "Theme invalide" }, { status: 400 });
