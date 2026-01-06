@@ -187,6 +187,7 @@ function setupWebSocketServer(server) {
                 if (!game) return ws.send(JSON.stringify({ type: "error", message: "Partie introuvable" }));
                 if (game.nextToPlay !== ws.user.id) return ws.send(JSON.stringify({ type: "error", message: "Ce n’est pas votre tour." }));
 
+                // Copie du board
                 const board = game.board.map(row => [...row]);
                 let piecesPlayedThisMove = 0;
 
@@ -286,6 +287,213 @@ function setupWebSocketServer(server) {
                     }
                 }
             }
+
+            if (data.type === "useSpecialMove") {
+                const { move } = data;
+                const game = await prisma.game.findUnique({ where: { code: me.code } });
+                if (!game) return ws.send(JSON.stringify({ type: "error", message: "Partie introuvable" }));
+                if (game.nextToPlay !== ws.user.id) return ws.send(JSON.stringify({
+                    type: "error",
+                    message: "Ce n’est pas votre tour."
+                }));
+
+                const board = game.board.map(row => [...row]);
+                const isHost = ws.user.id === game.hostId;
+
+                // --- Fonction utilitaire pour incrémenter piecesPlayed
+                async function incrementPiecesPlayed(userId, count = 1) {
+                    await prisma.stats.update({
+                        where: { userId },
+                        data: { piecesPlayed: { increment: count } }
+                    });
+                }
+
+                // --- BOMBE
+                if (move.type === "bombe") {
+                    if ((isHost && game.hostBombUsed) || (!isHost && game.guestBombUsed)) {
+                        return ws.send(JSON.stringify({ type: "error", message: "Vous avez déjà utilisé votre bombe" }));
+                    }
+
+                    const { row, col } = move;
+                    if (board[row][col] === null) {
+                        return ws.send(JSON.stringify({ type: "error", message: "Cette cellule est déjà vide !" }));
+                    }
+
+                    board[row][col] = null;
+
+                    // Descente des pièces
+                    for (let r = row - 1; r >= 0; r--) {
+                        if (board[r][col] !== null) {
+                            let rCurrent = r;
+                            while (rCurrent + 1 < ROWS && board[rCurrent + 1][col] === null) {
+                                board[rCurrent + 1][col] = board[rCurrent][col];
+                                board[rCurrent][col] = null;
+                                rCurrent++;
+                            }
+                        }
+                    }
+
+                    // Update DB
+                    await prisma.game.update({
+                        where: { code: me.code },
+                        data: {
+                            board,
+                            nextToPlay: isHost ? game.guestId : game.hostId,
+                            turn: { increment: 1 },
+                            ...(isHost ? { hostBombUsed: true } : { guestBombUsed: true })
+                        }
+                    });
+
+                    // --- UPDATE STATS
+                    await incrementPiecesPlayed(ws.user.id);
+
+                    const updatedGame = await prisma.game.findUnique({ where: { code: me.code } });
+                    const boardFromDb = Array.isArray(updatedGame.board) ? updatedGame.board : JSON.parse(updatedGame.board);
+
+                    for (const [s, p] of players.entries()) {
+                        if (p.code === me.code) {
+                            const isSelf = s.user.id === ws.user.id;
+                            s.send(JSON.stringify({
+                                type: "specialMoveUsed",
+                                moveType: "bombe",
+                                board: boardFromDb,
+                                isMyTurn: s.user.id === updatedGame.nextToPlay,
+                                bombUsed: isSelf
+                            }));
+                        }
+                    }
+                }
+
+                // --- LASER ORBITAL
+                if (move.type === "laser") {
+                    if ((isHost && game.hostLaserUsed) || (!isHost && game.guestLaserUsed)) {
+                        return ws.send(JSON.stringify({ type: "error", message: "Vous avez déjà utilisé votre laser" }));
+                    }
+
+                    const { col } = move;
+                    if (col < 0 || col >= COLS) return ws.send(JSON.stringify({
+                        type: "error",
+                        message: "Colonne invalide"
+                    }));
+
+                    // Supprime la colonne choisie
+                    for (let r = 0; r < ROWS; r++) {
+                        board[r][col] = null;
+                    }
+
+                    // Update DB
+                    await prisma.game.update({
+                        where: { code: me.code },
+                        data: {
+                            board,
+                            nextToPlay: isHost ? game.guestId : game.hostId,
+                            turn: { increment: 1 },
+                            ...(isHost ? { hostLaserUsed: true } : { guestLaserUsed: true })
+                        }
+                    });
+
+                    // --- UPDATE STATS
+                    await incrementPiecesPlayed(ws.user.id);
+
+                    const updatedGame = await prisma.game.findUnique({ where: { code: me.code } });
+                    const boardFromDb = Array.isArray(updatedGame.board) ? updatedGame.board : JSON.parse(updatedGame.board);
+
+                    for (const [s, p] of players.entries()) {
+                        if (p.code === me.code) {
+                            const isSelf = s.user.id === ws.user.id;
+                            s.send(JSON.stringify({
+                                type: "specialMoveUsed",
+                                moveType: "laser",
+                                board: boardFromDb,
+                                isMyTurn: s.user.id === updatedGame.nextToPlay,
+                                laserUsed: isSelf
+                            }));
+                        }
+                    }
+                }
+
+                // --- BACTERIE
+                // --- BACTERIE
+                if (move.type === "bacteria") {
+                    if ((isHost && game.hostBacteriaUsed) || (!isHost && game.guestBacteriaUsed)) {
+                        return ws.send(JSON.stringify({
+                            type: "error",
+                            message: "Vous avez déjà utilisé la bactérie"
+                        }));
+                    }
+
+                    const piecesTarget = Math.floor(Math.random() * 5) + 3;
+                    let piecesPlaced = 0;
+
+                    for (let i = 0; i < piecesTarget; i++) {
+                        const col = Math.floor(Math.random() * COLS);
+                        const color = Math.random() < 0.5 ? "red" : "yellow";
+
+                        for (let row = ROWS - 1; row >= 0; row--) {
+                            if (board[row][col] === null) {
+                                board[row][col] = color;
+                                piecesPlaced++;
+                                break;
+                            }
+                        }
+                    }
+
+                    // 🔴 IMPORTANT : vérification victoire / nul
+                    const redWin = checkWin(board, "red");
+                    const yellowWin = checkWin(board, "yellow");
+                    const isDraw = !redWin && !yellowWin && checkDraw(board);
+
+                    let winnerId = null;
+                    let loserId = null;
+                    let nextToPlay = null;
+
+                    if (redWin || yellowWin) {
+                        const winnerColor = redWin ? "red" : "yellow";
+                        winnerId = winnerColor === "red" ? game.hostId : game.guestId;
+                        loserId = winnerColor === "red" ? game.guestId : game.hostId;
+                    } else if (!isDraw) {
+                        nextToPlay = isHost ? game.guestId : game.hostId;
+                    }
+
+                    await prisma.game.update({
+                        where: { code: me.code },
+                        data: {
+                            board,
+                            nextToPlay,
+                            turn: { increment: 1 },
+                            winnerId,
+                            loserId,
+                            ...(isHost ? { hostBacteriaUsed: true } : { guestBacteriaUsed: true })
+                        }
+                    });
+
+                    if (piecesPlaced > 0) {
+                        await incrementPiecesPlayed(ws.user.id, piecesPlaced);
+                    }
+
+                    const updatedGame = await prisma.game.findUnique({ where: { code: me.code } });
+
+                    for (const [s, p] of players.entries()) {
+                        if (p.code === me.code) {
+                            const isSelf = s.user.id === ws.user.id;
+                            s.send(JSON.stringify({
+                                type: "specialMoveUsed",
+                                moveType: "bacteria",
+                                board: updatedGame.board,
+                                isMyTurn: !winnerId && !isDraw && s.user.id === updatedGame.nextToPlay,
+                                bacteriaUsed: isSelf,
+                                winner: winnerId
+                                    ? (winnerId === updatedGame.hostId ? "red" : "yellow")
+                                    : null,
+                                draw: isDraw
+                            }));
+                        }
+                    }
+                }
+
+
+            }
+
 
         });
 

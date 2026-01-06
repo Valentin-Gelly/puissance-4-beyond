@@ -31,6 +31,10 @@ export default function GamePage() {
     const [bombActive, setBombActive] = useState(false);
     const [laserUsed, setLaserUsed] = useState<boolean | null>(null);
     const [laserActive, setLaserActive] = useState(false);
+    const [bacteriaUsed, setBacteriaUsed] = useState<boolean | null>(null);
+    const [bacteriaActive, setBacteriaActive] = useState(false);
+    const [laserAnimCol, setLaserAnimCol] = useState<number | null>(null);
+    const [bombAnimCell, setBombAnimCell] = useState<{ row: number; col: number } | null>(null);
 
     const [gameOver, setGameOver] = useState(false);
     const [winnerColor, setWinnerColor] = useState<"red" | "yellow" | null>(null);
@@ -150,6 +154,26 @@ export default function GamePage() {
                 }
             }
 
+            if (data.type === "specialMoveUsed" && data.moveType === "bacteria") {
+                setBoard(structuredClone(data.board));
+                setIsMyTurn(data.isMyTurn);
+                setBacteriaActive(false);
+                if (data.bacteriaUsed !== undefined) {
+                    setBacteriaUsed(data.bacteriaUsed);
+                }
+
+                if (data.winner) {
+                    setGameOver(true);
+                    setWinnerColor(data.winner);
+                    setIsMyTurn(false);
+                }
+                if (data.draw) {
+                    setGameOver(true);
+                    setDraw(true);
+                    setIsMyTurn(false);
+                }
+            }
+
             if (data.winner) {
                 setGameOver(true);
                 setWinnerColor(data.winner);
@@ -201,14 +225,31 @@ export default function GamePage() {
         if (!isMyTurn || gameOver) return;
 
         if (bombActive && !bombUsed) {
-            // Utilisation de la bombe
+            setBombAnimCell({ row, col });
+
+            setTimeout(() => {
+                setBombAnimCell(null);
+            }, 450);
+
             send({ type: "useSpecialMove", move: { type: "bombe", row, col } });
             setBombActive(false);
             setBombUsed(true);
+            return;
         } else if (laserActive && !laserUsed) {
+            setLaserAnimCol(col);
+
+            setTimeout(() => {
+                setLaserAnimCol(null);
+            }, 600);
+
             send({ type: "useSpecialMove", move: { type: "laser", col } });
             setLaserActive(false);
             setLaserUsed(true);
+            return;
+        } else if (bacteriaActive && !bacteriaUsed) {
+            send({ type: "useSpecialMove", move: { type: "bacteria" } });
+            setBacteriaActive(false);
+            setBacteriaUsed(true);
             return;
         } else {
             // Coup normal
@@ -292,33 +333,72 @@ export default function GamePage() {
                     <p className="text-blue-400 font-semibold mt-1">🚀 Cliquez sur une colonne pour tout détruire !</p>
                 )}
             </div>
+            {/* Coup spécial Bactérie */}
+            <div className="mb-2">
+                <button
+                    className={`px-4 py-2 rounded-lg font-semibold shadow transition ${
+                        !isMyTurn || gameOver || bacteriaUsed
+                            ? "bg-gray-500 cursor-not-allowed"
+                            : "bg-green-600 hover:bg-green-700 text-white"
+                    }`}
+                    disabled={!isMyTurn || gameOver || bacteriaUsed}
+                    onClick={() => {
+                        if (!isMyTurn || gameOver || bacteriaUsed) return;
+                        // Envoi immédiat de l'action bacteria au serveur
+                        send({ type: "useSpecialMove", move: { type: "bacteria" } });
+                        setBacteriaUsed(true);
+                    }}
+                >
+                    🦠 Bactérie {bacteriaUsed ? "(utilisée)" : ""}
+                </button>
+            </div>
 
-
-            {/* Plateau */}
-            <div className={`${theme.board} grid grid-rows-6 grid-cols-7 gap-2 p-3 rounded-xl shadow-inner border-4 border-gray-700`}>
-                {board.map((row, r) =>
-                    row.map((cell, c) => (
+            {/* Plateau + Laser */}
+            <div className="relative">
+                {/* LASER ORBITAL */}
+                {laserAnimCol !== null && (
+                    <div className="absolute top-0 left-0 w-full h-full pointer-events-none z-50">
                         <div
-                            key={`${r}-${c}`}
-                            className={`w-14 h-14 rounded-full flex items-center justify-center cursor-pointer transition transform ${
-                                !gameOver && isMyTurn ? "hover:scale-110" : ""
-                            }`}
-                            onClick={() => handleCellClick(r, c)}
-                        >
-                            <div className={`w-full h-full rounded-full flex items-center justify-center ${theme.emptyCell}`}>
-                                {cell && (
-                                    <div
-                                        className={`w-12 h-12 rounded-full shadow-xl ${
-                                            cell === "red"
-                                                ? theme.red + " " + theme.redGlow
-                                                : theme.yellow + " " + theme.yellowGlow
-                                        }`}
-                                    ></div>
-                                )}
-                            </div>
-                        </div>
-                    ))
+                            className="laser-beam"
+                            style={{
+                                left: `${laserAnimCol * 64 + 30}px`,
+                            }}
+                        />
+                    </div>
                 )}
+
+                {/* PLATEAU */}
+                <div className={`${theme.board} grid grid-rows-6 grid-cols-7 gap-2 p-3 rounded-xl shadow-inner border-4 border-gray-700`}>
+                    {board.map((row, r) =>
+                        row.map((cell, c) => (
+                            <div
+                                key={`${r}-${c}`}
+                                className={`w-14 h-14 rounded-full flex items-center justify-center cursor-pointer transition transform ${
+                                    !gameOver && isMyTurn ? "hover:scale-110" : ""
+                                }`}
+                                onClick={() => handleCellClick(r, c)}
+                            >
+                                <div className={`relative w-full h-full rounded-full flex items-center justify-center ${theme.emptyCell}`}>
+                                    {bombAnimCell?.row === r && bombAnimCell?.col === c && (
+                                        <div className="absolute inset-0 z-50 flex items-center justify-center pointer-events-none">
+                                            <div className="bomb-explosion" />
+                                        </div>
+                                    )}
+
+                                    {cell && (
+                                        <div
+                                            className={`w-12 h-12 rounded-full shadow-xl ${
+                                                cell === "red"
+                                                    ? theme.red + " " + theme.redGlow
+                                                    : theme.yellow + " " + theme.yellowGlow
+                                            }`}
+                                        ></div>
+                                    )}
+                                </div>
+                            </div>
+                        ))
+                    )}
+                </div>
             </div>
 
             {/* Game over */}

@@ -29,3 +29,69 @@ body {
   color: var(--foreground);
   font-family: Arial, Helvetica, sans-serif;
 }
+
+.laser-beam {
+    position: absolute;
+    top: -100%;
+    width: 8px;
+    height: 200%;
+    background: linear-gradient(
+            to bottom,
+            rgba(0, 255, 255, 0),
+            rgba(0, 255, 255, 0.8),
+            rgba(255, 255, 255, 1)
+    );
+    box-shadow:
+            0 0 10px cyan,
+            0 0 20px cyan,
+            0 0 40px white;
+    animation: laser-strike 0.6s ease-in forwards;
+}
+
+@keyframes laser-strike {
+    0% {
+        transform: translateY(-100%);
+        opacity: 0;
+    }
+    20% {
+        opacity: 1;
+    }
+    100% {
+        transform: translateY(100%);
+        opacity: 0;
+    }
+}
+
+.bomb-explosion {
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+    background: radial-gradient(
+            circle,
+            #fff 0%,
+            #ffcc00 30%,
+            #ff6600 55%,
+            #ff0000 70%,
+            transparent 75%
+    );
+    box-shadow:
+            0 0 10px #ffcc00,
+            0 0 20px #ff6600,
+            0 0 35px #ff0000;
+    animation: bomb-pop 0.45s ease-out forwards;
+}
+
+@keyframes bomb-pop {
+    0% {
+        transform: scale(0.2);
+        opacity: 1;
+    }
+    60% {
+        transform: scale(3);
+        opacity: 1;
+    }
+    100% {
+        transform: scale(4);
+        opacity: 0;
+    }
+}
