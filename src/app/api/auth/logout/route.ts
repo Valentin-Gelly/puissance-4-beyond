@@ -7,10 +7,10 @@ export async function POST() {
         name: "token",
         value: "",
         httpOnly: true,
-        secure: process.env.NODE_ENV === "production",
+        secure: false,
         sameSite: "lax",
         maxAge: 0,
-        path: "/", // doit être identique à celui du login
+        path: "/",
     });
 
     return response;
