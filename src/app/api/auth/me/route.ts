@@ -27,6 +27,7 @@ export async function GET(req: NextRequest) {
         return NextResponse.json({ user });
     } catch (err) {
         console.error("Auth error:", err);
-        return NextResponse.redirect("/auth"); // token invalide ou erreur
+        return;
+        // return NextResponse.redirect("/auth"); // token invalide ou erreur
     }
 }
