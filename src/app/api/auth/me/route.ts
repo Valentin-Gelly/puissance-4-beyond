@@ -6,7 +6,8 @@ const JWT_SECRET = process.env.JWT_SECRET!;
 
 export async function GET(req: NextRequest) {
     try {
-        const token = req.cookies.get("token")?.value;
+        const cookie = req.headers.get("cookie") || "";
+        const token = cookie.split("token=")[1]?.split(";")[0];
 
         if (!token) {
             return NextResponse.redirect("/auth"); // renvoi vers /auth si pas de token
@@ -27,7 +28,6 @@ export async function GET(req: NextRequest) {
         return NextResponse.json({ user });
     } catch (err) {
         console.error("Auth error:", err);
-        return;
-        // return NextResponse.redirect("/auth"); // token invalide ou erreur
+        return NextResponse.redirect("/auth"); // token invalide ou erreur
     }
 }
