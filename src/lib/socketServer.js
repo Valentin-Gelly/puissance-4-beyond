@@ -188,9 +188,13 @@ function setupWebSocketServer(server) {
                 if (game.nextToPlay !== ws.user.id) return ws.send(JSON.stringify({ type: "error", message: "Ce n’est pas votre tour." }));
 
                 const board = game.board.map(row => [...row]);
+                let piecesPlayedThisMove = 0;
+
+                // Pose le pion
                 for (let row = ROWS - 1; row >= 0; row--) {
                     if (!board[row][data.move.col]) {
                         board[row][data.move.col] = data.move.color;
+                        piecesPlayedThisMove++;
                         break;
                     }
                 }
@@ -219,6 +223,54 @@ function setupWebSocketServer(server) {
                     }
                 });
 
+                // --- UPDATE STATS
+                if (hasWon || isDraw) {
+                    // Gagnant
+                    if (winnerId) {
+                        await prisma.stats.update({
+                            where: { userId: winnerId },
+                            data: {
+                                gamesPlayed: { increment: 1 },
+                                gamesWon: { increment: 1 },
+                                piecesPlayed: { increment: piecesPlayedThisMove }
+                            }
+                        });
+                    }
+
+                    // Perdant
+                    if (loserId) {
+                        await prisma.stats.update({
+                            where: { userId: loserId },
+                            data: {
+                                gamesPlayed: { increment: 1 },
+                                gamesLost: { increment: 1 },
+                                piecesPlayed: { increment: piecesPlayedThisMove }
+                            }
+                        });
+                    }
+
+                    // Match nul (si aucun gagnant)
+                    if (isDraw) {
+                        const playersIds = [game.hostId, game.guestId].filter(Boolean);
+                        await Promise.all(playersIds.map(id =>
+                            prisma.stats.update({
+                                where: { userId: id },
+                                data: {
+                                    gamesPlayed: { increment: 1 },
+                                    piecesPlayed: { increment: piecesPlayedThisMove }
+                                }
+                            })
+                        ));
+                    }
+                } else {
+                    // Partie en cours : incrémente juste piecesPlayed du joueur courant
+                    await prisma.stats.update({
+                        where: { userId: ws.user.id },
+                        data: { piecesPlayed: { increment: piecesPlayedThisMove } }
+                    });
+                }
+
+                // Envoi WS à tous les joueurs de la partie
                 const updatedGame = await prisma.game.findUnique({ where: { code: me.code } });
                 const boardFromDb = Array.isArray(updatedGame.board) ? updatedGame.board : JSON.parse(updatedGame.board);
 
@@ -231,119 +283,6 @@ function setupWebSocketServer(server) {
                             winner: hasWon ? data.move.color : null,
                             draw: isDraw
                         }));
-                    }
-                }
-            }
-
-            if (data.type === "useSpecialMove") {
-                const {move} = data; // move.row, move.col et move.type
-                const game = await prisma.game.findUnique({where: {code: me.code}});
-                if (!game) return ws.send(JSON.stringify({type: "error", message: "Partie introuvable"}));
-                if (game.nextToPlay !== ws.user.id) return ws.send(JSON.stringify({
-                    type: "error",
-                    message: "Ce n’est pas votre tour."
-                }));
-
-                const board = game.board.map(row => [...row]);
-                const isHost = ws.user.id === game.hostId;
-
-                // --- BOMBES
-                if (move.type === "bombe") {
-                    if ((isHost && game.hostBombUsed) || (!isHost && game.guestBombUsed)) {
-                        return ws.send(JSON.stringify({type: "error", message: "Vous avez déjà utilisé votre bombe"}));
-                    }
-
-                    const {row, col} = move;
-                    if (board[row][col] !== null) {
-                        board[row][col] = null;
-                    } else {
-                        return ws.send(JSON.stringify({type: "error", message: "Cette cellule est déjà vide !"}));
-                    }
-
-                    // Descente des pièces
-                    for (let r = row - 1; r >= 0; r--) {
-                        if (board[r][col] !== null) {
-                            let rCurrent = r;
-                            while (rCurrent + 1 < ROWS && board[rCurrent + 1][col] === null) {
-                                board[rCurrent + 1][col] = board[rCurrent][col];
-                                board[rCurrent][col] = null;
-                                rCurrent++;
-                            }
-                        }
-                    }
-
-                    // Update DB
-                    await prisma.game.update({
-                        where: {code: me.code},
-                        data: {
-                            board,
-                            nextToPlay: isHost ? game.guestId : game.hostId,
-                            turn: {increment: 1},
-                            ...(isHost ? {hostBombUsed: true} : {guestBombUsed: true})
-                        }
-                    });
-
-                    const updatedGame = await prisma.game.findUnique({where: {code: me.code}});
-                    const boardFromDb = Array.isArray(updatedGame.board) ? updatedGame.board : JSON.parse(updatedGame.board);
-
-                    // Envoie à chaque joueur
-                    for (const [s, p] of players.entries()) {
-                        if (p.code === me.code) {
-                            const isSelf = s.user.id === ws.user.id;
-                            s.send(JSON.stringify({
-                                type: "specialMoveUsed",
-                                moveType: "bombe",
-                                board: boardFromDb,
-                                isMyTurn: s.user.id === updatedGame.nextToPlay,
-                                bombUsed: isSelf
-                            }));
-                        }
-                    }
-                }
-
-// --- LASER ORBITAL
-                if (move.type === "laser") {
-                    if ((isHost && game.hostLaserUsed) || (!isHost && game.guestLaserUsed)) {
-                        return ws.send(JSON.stringify({type: "error", message: "Vous avez déjà utilisé votre laser"}));
-                    }
-
-                    const {col} = move;
-                    if (col < 0 || col >= COLS) return ws.send(JSON.stringify({
-                        type: "error",
-                        message: "Colonne invalide"
-                    }));
-
-                    // Supprime la colonne choisie
-                    for (let r = 0; r < ROWS; r++) {
-                        board[r][col] = null;
-                    }
-
-                    // Update DB
-                    await prisma.game.update({
-                        where: {code: me.code},
-                        data: {
-                            board,
-                            nextToPlay: isHost ? game.guestId : game.hostId,
-                            turn: {increment: 1},
-                            ...(isHost ? {hostLaserUsed: true} : {guestLaserUsed: true})
-                        }
-                    });
-
-                    const updatedGame = await prisma.game.findUnique({where: {code: me.code}});
-                    const boardFromDb = Array.isArray(updatedGame.board) ? updatedGame.board : JSON.parse(updatedGame.board);
-
-                    // Envoie à chaque joueur
-                    for (const [s, p] of players.entries()) {
-                        if (p.code === me.code) {
-                            const isSelf = s.user.id === ws.user.id;
-                            s.send(JSON.stringify({
-                                type: "specialMoveUsed",
-                                moveType: "laser",
-                                board: boardFromDb,
-                                isMyTurn: s.user.id === updatedGame.nextToPlay,
-                                laserUsed: isSelf // seul le joueur qui a utilisé le laser reçoit true
-                            }));
-                        }
                     }
                 }
             }
