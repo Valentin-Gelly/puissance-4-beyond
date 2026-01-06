@@ -18,9 +18,32 @@ export async function GET(
     });
 
     const startedGames = games.filter(g => {
-        if (!g.board || g.board.length === 0) return false;
-        const boardArray = Array.isArray(g.board) ? g.board : JSON.parse(g.board);
-        return boardArray.some(row => row.some(cell => cell !== null));
+        if (!g.board) return false;
+
+        let boardArray: any[] = [];
+
+        if (Array.isArray(g.board)) {
+            boardArray = g.board;
+        } else if (typeof g.board === "string") {
+            try {
+                const parsed = JSON.parse(g.board);
+                if (Array.isArray(parsed)) {
+                    boardArray = parsed;
+                } else {
+                    return false;
+                }
+            } catch {
+                return false;
+            }
+        } else {
+            return false;
+        }
+
+        if (boardArray.length === 0) return false;
+
+        return boardArray.some(
+            row => Array.isArray(row) && row.some(cell => cell !== null)
+        );
     });
 
     const history = startedGames.map(g => {
@@ -31,7 +54,8 @@ export async function GET(
             else if (g.loserId === numericUserId) result = "loss";
         }
 
-        const opponentUsername = g.hostId === numericUserId ? g.guest?.username : g.host?.username;
+        const opponentUsername =
+            g.hostId === numericUserId ? g.guest?.username : g.host?.username;
 
         return {
             code: g.code,

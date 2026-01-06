@@ -27,12 +27,16 @@ export default function GamePage() {
     const [opponent, setOpponent] = useState<string | undefined>(undefined);
     const [gameLoading, setGameLoading] = useState(true);
     const [isHost, setIsHost] = useState(false);
-    const [bombUsed, setBombUsed] = useState<boolean | null>(null);
+
+    const [bombUsed, setBombUsed] = useState<boolean>(false);
     const [bombActive, setBombActive] = useState(false);
-    const [laserUsed, setLaserUsed] = useState<boolean | null>(null);
+
+    const [laserUsed, setLaserUsed] = useState<boolean>(false);
     const [laserActive, setLaserActive] = useState(false);
-    const [bacteriaUsed, setBacteriaUsed] = useState<boolean | null>(null);
+
+    const [bacteriaUsed, setBacteriaUsed] = useState<boolean>(false);
     const [bacteriaActive, setBacteriaActive] = useState(false);
+
     const [laserAnimCol, setLaserAnimCol] = useState<number | null>(null);
     const [bombAnimCell, setBombAnimCell] = useState<{ row: number; col: number } | null>(null);
 
@@ -344,7 +348,6 @@ export default function GamePage() {
                     disabled={!isMyTurn || gameOver || bacteriaUsed}
                     onClick={() => {
                         if (!isMyTurn || gameOver || bacteriaUsed) return;
-                        // Envoi immédiat de l'action bacteria au serveur
                         send({ type: "useSpecialMove", move: { type: "bacteria" } });
                         setBacteriaUsed(true);
                     }}

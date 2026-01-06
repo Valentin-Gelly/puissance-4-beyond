@@ -1,9 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import bcrypt from "bcryptjs";
 import { prisma } from "@/lib/prisma";
-import jwt from "jsonwebtoken";
+import { SignJWT } from "jose";
 
-const JWT_SECRET = process.env.JWT_SECRET!;
+const JWT_SECRET = new TextEncoder().encode(process.env.JWT_SECRET!);
 const JWT_EXPIRES_IN = process.env.JWT_EXPIRES_IN || "7d";
 
 export async function POST(req: NextRequest) {
@@ -29,9 +29,11 @@ export async function POST(req: NextRequest) {
 
         if (!JWT_SECRET) throw new Error("JWT_SECRET manquant");
 
-        const token = jwt.sign({ id: user.id, email: user.email, username: user.username }, JWT_SECRET, {
-            expiresIn: JWT_EXPIRES_IN,
-        });
+        // Création du token avec jose
+        const token = await new SignJWT({ id: user.id, email: user.email, username: user.username })
+            .setProtectedHeader({ alg: "HS256" })
+            .setExpirationTime(JWT_EXPIRES_IN)
+            .sign(JWT_SECRET);
 
         const response = NextResponse.json({
             message: "Connexion réussie",
@@ -47,6 +49,7 @@ export async function POST(req: NextRequest) {
             maxAge: 7 * 24 * 60 * 60,
             path: "/",
         });
+
         return response;
     } catch (error) {
         console.error(error);

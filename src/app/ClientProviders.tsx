@@ -1,9 +1,8 @@
-// app/ClientProviders.tsx (client)
 "use client";
 
 import { ReactNode, useEffect, useState } from "react";
 import { WSProvider } from "@/context/WebSocketContext";
-import { ThemeProvider } from "@/context/ThemeContext";
+import { ThemeProvider, useTheme } from "@/context/ThemeContext";
 
 export default function ClientProviders({ children }: { children: ReactNode }) {
     const [theme, setTheme] = useState<"default" | "arcade" | "retro">("default");
@@ -25,10 +24,15 @@ export default function ClientProviders({ children }: { children: ReactNode }) {
         fetchTheme();
     }, []);
 
-    if (loading) return <div className="min-h-screen flex items-center justify-center text-gray-400">Chargement du thème…</div>;
+    if (loading)
+        return (
+            <div className="min-h-screen flex items-center justify-center text-gray-400">
+                Chargement du thème…
+            </div>
+        );
 
     return (
-        <ThemeProvider initialTheme={theme} setTheme={setTheme}>
+        <ThemeProvider initialTheme={theme}>
             <WSProvider>{children}</WSProvider>
         </ThemeProvider>
     );
