@@ -7,6 +7,9 @@ import { useForm } from "react-hook-form";
 type FormValues = {
     email: string;
     password: string;
+    username?: string;
+    name?: string;
+    lastname?: string;
 };
 
 export default function AuthPage() {
@@ -51,6 +54,45 @@ export default function AuthPage() {
                 </h1>
 
                 <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
+                    {!isLogin && (
+                        <>
+                            <div>
+                                <label className="block text-sm font-medium mb-1">Nom d'utilisateur</label>
+                                <input
+                                    type="text"
+                                    {...register("username", { required: "Nom d'utilisateur requis" })}
+                                    className="w-full border rounded-lg p-2 focus:outline-none focus:ring focus:ring-blue-300"
+                                />
+                                {errors.username && (
+                                    <p className="text-red-500 text-sm">{errors.username.message}</p>
+                                )}
+                            </div>
+
+                            <div>
+                                <label className="block text-sm font-medium mb-1">Prénom</label>
+                                <input
+                                    type="text"
+                                    {...register("name", { required: "Prénom requis" })}
+                                    className="w-full border rounded-lg p-2 focus:outline-none focus:ring focus:ring-blue-300"
+                                />
+                                {errors.name && (
+                                    <p className="text-red-500 text-sm">{errors.name.message}</p>
+                                )}
+                            </div>
+
+                            <div>
+                                <label className="block text-sm font-medium mb-1">Nom</label>
+                                <input
+                                    type="text"
+                                    {...register("lastname", { required: "Nom requis" })}
+                                    className="w-full border rounded-lg p-2 focus:outline-none focus:ring focus:ring-blue-300"
+                                />
+                                {errors.lastname && (
+                                    <p className="text-red-500 text-sm">{errors.lastname.message}</p>
+                                )}
+                            </div>
+                        </>
+                    )}
                     <div>
                         <label className="block text-sm font-medium mb-1">Email</label>
                         <input

@@ -82,9 +82,38 @@ function setupWebSocketServer(server) {
         });
     });
 
-    wss.on("connection", (ws) => {
+    wss.on("connection", async (ws) => {
         console.log("[WS] connected:", ws.user?.email);
-        players.set(ws, { id: ws.user.id, email: ws.user.email });
+        players.set(ws, { id: ws.user.id, email: ws.user.email , username: ws.user.username});
+
+        const me = players.get(ws);
+
+        // --- RECONNEXION : si le joueur a déjà un code de partie
+        if (me?.code) {
+            const game = await prisma.game.findUnique({ where: { code: me.code } });
+            if (game) {
+                const boardFromDb = Array.isArray(game.board) ? game.board : JSON.parse(game.board);
+                const isMyTurn = game.nextToPlay === ws.user.id;
+                const color = game.hostId === ws.user.id ? "red" : "yellow";
+                const opponentWs = [...players.entries()].find(([s, p]) => p.code === me.code && s !== ws)?.[0];
+                const opponentEmail = opponentWs ? players.get(opponentWs)?.email : undefined;
+
+                // --- FIX: bombUsed depuis la DB, pas depuis "players"
+                const bombUsedFromDb = ws.user.id === game.hostId ? game.hostBombUsed : game.guestBombUsed;
+
+                ws.send(JSON.stringify({
+                    type: "reconnected",
+                    board: boardFromDb,
+                    isMyTurn,
+                    color,
+                    opponent: opponentEmail,
+                    winner: game.winnerId ? (game.winnerId === ws.user.id ? color : (color === "red" ? "yellow" : "red")) : null,
+                    draw: game.loserId && !game.winnerId ? true : false,
+                    bombUsed: bombUsedFromDb
+                }));
+            }
+        }
+
 
         ws.on("message", async (raw) => {
             let data;
@@ -111,44 +140,29 @@ function setupWebSocketServer(server) {
             if (data.type === "joinLobby") {
                 const code = data.code?.trim().toUpperCase();
                 const game = await prisma.game.findUnique({ where: { code } });
-
-                // --- Si le lobby n'existe pas ou déjà complet
                 if (!game || game.guestId) {
                     return ws.send(JSON.stringify({ type: "error", message: "Lobby introuvable ou complet" }));
                 }
-
-                // --- 🚫 Si le joueur essaie de rejoindre un lobby dont il est déjà membre (host ou guest)
                 if (game.hostId === ws.user.id || game.guestId === ws.user.id) {
                     return ws.send(JSON.stringify({ type: "error", message: "Lobby introuvable ou complet" }));
                 }
-
-                // --- Récupération du host
                 const hostWs = [...players.entries()].find(([, p]) => p.code === code && p.isHost)?.[0];
-                if (!hostWs) {
-                    return ws.send(JSON.stringify({ type: "error", message: "Host introuvable" }));
-                }
-
-                // --- Mise à jour du lobby en DB
+                if (!hostWs) return ws.send(JSON.stringify({ type: "error", message: "Host introuvable" }));
+                await prisma.game.update({ where: { code }, data: { guestId: ws.user.id } });
                 await prisma.game.update({ where: { code }, data: { guestId: ws.user.id } });
                 const hostInfo = players.get(hostWs);
                 players.set(ws, { ...me, code, isHost: false });
-
-                // --- Notifie les deux
-                hostWs.send(JSON.stringify({ type: "guestJoined", code, guest: ws.user.email }));
-                ws.send(JSON.stringify({ type: "joinedLobby", code, host: hostInfo.email }));
+                hostWs.send(JSON.stringify({ type: "guestJoined", code, guest: ws.user.username }));
+                ws.send(JSON.stringify({ type: "joinedLobby", code, host: hostWs.user.username }));
             }
-
 
             // --- START GAME
             if (data.type === "startGame") {
                 if (!me?.isHost) return;
                 const game = await prisma.game.findUnique({ where: { code: me.code } });
                 if (!game?.guestId) return ws.send(JSON.stringify({ type:"error", message:"Pas d’adversaire" }));
-
                 const [hostWs, guestWs] = [...players.entries()].filter(([, p]) => p.code===me.code).map(([s])=>s);
-
                 const emptyBoard = Array.from({ length: ROWS }, () => Array(COLS).fill(null));
-
                 hostWs.send(JSON.stringify({
                     type: "gameStarted",
                     code: me.code,
@@ -165,102 +179,46 @@ function setupWebSocketServer(server) {
                     opponent: players.get(hostWs).email,
                     board: emptyBoard
                 }));
-
             }
 
             // --- PLAY MOVE
             if (data.type === "playMove") {
-                // 1️⃣ Récupère la partie depuis la DB
                 const game = await prisma.game.findUnique({ where: { code: me.code } });
                 if (!game) return ws.send(JSON.stringify({ type: "error", message: "Partie introuvable" }));
                 if (game.nextToPlay !== ws.user.id) return ws.send(JSON.stringify({ type: "error", message: "Ce n’est pas votre tour." }));
 
-                // 2️⃣ Applique le coup
                 const board = game.board.map(row => [...row]);
-                let piecesPlayedByCurrentMove = 0;
                 for (let row = ROWS - 1; row >= 0; row--) {
                     if (!board[row][data.move.col]) {
                         board[row][data.move.col] = data.move.color;
-                        piecesPlayedByCurrentMove++;
                         break;
                     }
                 }
 
-                // 3️⃣ Vérifie victoire / match nul
                 const hasWon = checkWin(board, data.move.color);
                 const isDraw = !hasWon && checkDraw(board);
                 const nextId = hasWon || isDraw ? null : (ws.user.id === game.hostId ? game.guestId : game.hostId);
 
-                // 4️⃣ Mets à jour la DB avec le coup
-                await prisma.game.update({
-                    where: { code: me.code },
-                    data: { board, nextToPlay: nextId, turn: { increment: 1 } }
-                });
+                let winnerId = null;
+                let loserId = null;
 
-                // 5️⃣ Mets à jour les stats si la partie est terminée
-                if (hasWon || isDraw) {
-                    const hostPieces = board.flat().filter(c => c === "red").length;
-                    const guestPieces = board.flat().filter(c => c === "yellow").length;
-
-                    // Détermination winner / loser
-                    let winnerId = null;
-                    let loserId = null;
-
-                    if (hasWon) {
-                        winnerId = data.move.color === "red" ? game.hostId : game.guestId;
-                        loserId  = data.move.color === "red" ? game.guestId : game.hostId;
-                    }
-
-                    // Mise à jour des stats host
-                    await prisma.stats.upsert({
-                        where: { userId: game.hostId },
-                        update: {
-                            gamesPlayed: { increment: 1 },
-                            gamesWon: { increment: winnerId === game.hostId ? 1 : 0 },
-                            gamesLost: { increment: loserId === game.hostId ? 1 : 0 },
-                            piecesPlayed: { increment: hostPieces }
-                        },
-                        create: {
-                            userId: game.hostId,
-                            gamesPlayed: 1,
-                            gamesWon: winnerId === game.hostId ? 1 : 0,
-                            gamesLost: loserId === game.hostId ? 1 : 0,
-                            piecesPlayed: hostPieces
-                        }
-                    });
-
-                    // Mise à jour des stats guest
-                    if (game.guestId) {
-                        await prisma.stats.upsert({
-                            where: { userId: game.guestId },
-                            update: {
-                                gamesPlayed: { increment: 1 },
-                                gamesWon: { increment: winnerId === game.guestId ? 1 : 0 },
-                                gamesLost: { increment: loserId === game.guestId ? 1 : 0 },
-                                piecesPlayed: { increment: guestPieces }
-                            },
-                            create: {
-                                userId: game.guestId,
-                                gamesPlayed: 1,
-                                gamesWon: winnerId === game.guestId ? 1 : 0,
-                                gamesLost: loserId === game.guestId ? 1 : 0,
-                                piecesPlayed: guestPieces
-                            }
-                        });
-                    }
-
-                    // Mise à jour de la partie avec winner/loser
-                    await prisma.game.update({
-                        where: { code: me.code },
-                        data: {
-                            winnerId,
-                            loserId,
-                        }
-                    });
+                if (hasWon) {
+                    winnerId = data.move.color === "red" ? game.hostId : game.guestId;
+                    loserId  = data.move.color === "red" ? game.guestId : game.hostId;
                 }
 
+                // Mets à jour la DB avec coup + éventuel winner/loser
+                await prisma.game.update({
+                    where: { code: me.code },
+                    data: {
+                        board,
+                        nextToPlay: nextId,
+                        turn: { increment: 1 },
+                        winnerId,
+                        loserId
+                    }
+                });
 
-                // 6️⃣ Envoie la grille mise à jour à tous les joueurs
                 const updatedGame = await prisma.game.findUnique({ where: { code: me.code } });
                 const boardFromDb = Array.isArray(updatedGame.board) ? updatedGame.board : JSON.parse(updatedGame.board);
 
@@ -277,10 +235,121 @@ function setupWebSocketServer(server) {
                 }
             }
 
+            if (data.type === "useSpecialMove") {
+                const {move} = data; // move.row, move.col et move.type
+                const game = await prisma.game.findUnique({where: {code: me.code}});
+                if (!game) return ws.send(JSON.stringify({type: "error", message: "Partie introuvable"}));
+                if (game.nextToPlay !== ws.user.id) return ws.send(JSON.stringify({
+                    type: "error",
+                    message: "Ce n’est pas votre tour."
+                }));
+
+                const board = game.board.map(row => [...row]);
+                const isHost = ws.user.id === game.hostId;
+
+                // --- BOMBES
+                if (move.type === "bombe") {
+                    if ((isHost && game.hostBombUsed) || (!isHost && game.guestBombUsed)) {
+                        return ws.send(JSON.stringify({type: "error", message: "Vous avez déjà utilisé votre bombe"}));
+                    }
+
+                    const {row, col} = move;
+                    if (board[row][col] !== null) {
+                        board[row][col] = null;
+                    } else {
+                        return ws.send(JSON.stringify({type: "error", message: "Cette cellule est déjà vide !"}));
+                    }
+
+                    // Descente des pièces
+                    for (let r = row - 1; r >= 0; r--) {
+                        if (board[r][col] !== null) {
+                            let rCurrent = r;
+                            while (rCurrent + 1 < ROWS && board[rCurrent + 1][col] === null) {
+                                board[rCurrent + 1][col] = board[rCurrent][col];
+                                board[rCurrent][col] = null;
+                                rCurrent++;
+                            }
+                        }
+                    }
+
+                    // Update DB
+                    await prisma.game.update({
+                        where: {code: me.code},
+                        data: {
+                            board,
+                            nextToPlay: isHost ? game.guestId : game.hostId,
+                            turn: {increment: 1},
+                            ...(isHost ? {hostBombUsed: true} : {guestBombUsed: true})
+                        }
+                    });
+
+                    const updatedGame = await prisma.game.findUnique({where: {code: me.code}});
+                    const boardFromDb = Array.isArray(updatedGame.board) ? updatedGame.board : JSON.parse(updatedGame.board);
+
+                    // Envoie à chaque joueur
+                    for (const [s, p] of players.entries()) {
+                        if (p.code === me.code) {
+                            const isSelf = s.user.id === ws.user.id;
+                            s.send(JSON.stringify({
+                                type: "specialMoveUsed",
+                                moveType: "bombe",
+                                board: boardFromDb,
+                                isMyTurn: s.user.id === updatedGame.nextToPlay,
+                                bombUsed: isSelf
+                            }));
+                        }
+                    }
+                }
+
+// --- LASER ORBITAL
+                if (move.type === "laser") {
+                    if ((isHost && game.hostLaserUsed) || (!isHost && game.guestLaserUsed)) {
+                        return ws.send(JSON.stringify({type: "error", message: "Vous avez déjà utilisé votre laser"}));
+                    }
+
+                    const {col} = move;
+                    if (col < 0 || col >= COLS) return ws.send(JSON.stringify({
+                        type: "error",
+                        message: "Colonne invalide"
+                    }));
+
+                    // Supprime la colonne choisie
+                    for (let r = 0; r < ROWS; r++) {
+                        board[r][col] = null;
+                    }
+
+                    // Update DB
+                    await prisma.game.update({
+                        where: {code: me.code},
+                        data: {
+                            board,
+                            nextToPlay: isHost ? game.guestId : game.hostId,
+                            turn: {increment: 1},
+                            ...(isHost ? {hostLaserUsed: true} : {guestLaserUsed: true})
+                        }
+                    });
+
+                    const updatedGame = await prisma.game.findUnique({where: {code: me.code}});
+                    const boardFromDb = Array.isArray(updatedGame.board) ? updatedGame.board : JSON.parse(updatedGame.board);
+
+                    // Envoie à chaque joueur
+                    for (const [s, p] of players.entries()) {
+                        if (p.code === me.code) {
+                            const isSelf = s.user.id === ws.user.id;
+                            s.send(JSON.stringify({
+                                type: "specialMoveUsed",
+                                moveType: "laser",
+                                board: boardFromDb,
+                                isMyTurn: s.user.id === updatedGame.nextToPlay,
+                                laserUsed: isSelf // seul le joueur qui a utilisé le laser reçoit true
+                            }));
+                        }
+                    }
+                }
+            }
 
         });
 
-        ws.on("close", ()=>{ players.delete(ws); console.log("[WS] closed:", ws.user?.email); });
     });
 
     console.log("🚀 WebSocket server ready (noServer)");

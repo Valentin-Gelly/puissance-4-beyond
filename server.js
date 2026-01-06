@@ -10,7 +10,7 @@ const handle = app.getRequestHandler();
 app.prepare().then(() => {
     const server = createServer((req, res) => handle(req, res));
 
-    setupWebSocketServer(server); // <--- ton serveur ws ici
+    setupWebSocketServer(server);
 
     const PORT = process.env.PORT || 3000;
     server.listen(PORT, () => {

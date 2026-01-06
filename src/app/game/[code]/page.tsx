@@ -16,7 +16,7 @@ export default function GamePage() {
 
     const { theme } = useTheme();
 
-    const [user, setUser] = useState<{ id: number; email: string } | null>(null);
+    const [user, setUser] = useState<{ id: number; email: string, username: string } | null>(null);
     const [userLoading, setUserLoading] = useState(true);
 
     const [board, setBoard] = useState<Cell[][]>(
@@ -27,6 +27,10 @@ export default function GamePage() {
     const [opponent, setOpponent] = useState<string | undefined>(undefined);
     const [gameLoading, setGameLoading] = useState(true);
     const [isHost, setIsHost] = useState(false);
+    const [bombUsed, setBombUsed] = useState<boolean | null>(null);
+    const [bombActive, setBombActive] = useState(false);
+    const [laserUsed, setLaserUsed] = useState<boolean | null>(null);
+    const [laserActive, setLaserActive] = useState(false);
 
     const [gameOver, setGameOver] = useState(false);
     const [winnerColor, setWinnerColor] = useState<"red" | "yellow" | null>(null);
@@ -77,7 +81,9 @@ export default function GamePage() {
                 setMyColor(color);
                 setIsMyTurn(isTurn);
                 setBoard(game.board?.length ? game.board : Array.from({ length: ROWS }, () => Array(COLS).fill(null)));
-                setOpponent(isHostPlayer ? game.guest?.email : game.host?.email);
+                setOpponent(isHostPlayer ? game.guest?.username : game.host?.username);
+
+                setBombUsed(isHostPlayer ? game.hostBombUsed : game.guestBombUsed);
 
                 if (game.winner) {
                     setGameOver(true);
@@ -108,6 +114,42 @@ export default function GamePage() {
             if (data.opponent) setOpponent(data.opponent);
             if (gameLoading) setGameLoading(false);
 
+            if (data.type === "specialMoveUsed" && data.moveType === "bombe") {
+                setBoard(structuredClone(data.board));
+                setIsMyTurn(data.isMyTurn);
+                if (data.bombUsed !== undefined) setBombUsed(data.bombUsed);
+                setBombActive(false);
+
+                if (data.winner) {
+                    setGameOver(true);
+                    setWinnerColor(data.winner);
+                    setIsMyTurn(false);
+                }
+                if (data.draw) {
+                    setGameOver(true);
+                    setDraw(true);
+                    setIsMyTurn(false);
+                }
+            }
+
+            if (data.type === "specialMoveUsed" && data.moveType === "laser") {
+                setBoard(structuredClone(data.board));
+                setIsMyTurn(data.isMyTurn);
+                setLaserActive(false);
+                if (data.laserUsed !== undefined) setLaserUsed(data.laserUsed);
+
+                if (data.winner) {
+                    setGameOver(true);
+                    setWinnerColor(data.winner);
+                    setIsMyTurn(false);
+                }
+                if (data.draw) {
+                    setGameOver(true);
+                    setDraw(true);
+                    setIsMyTurn(false);
+                }
+            }
+
             if (data.winner) {
                 setGameOver(true);
                 setWinnerColor(data.winner);
@@ -118,6 +160,16 @@ export default function GamePage() {
                 setDraw(true);
                 setIsMyTurn(false);
             }
+
+            if (data.type === "reconnected") {
+                if (data.board) setBoard(structuredClone(data.board));
+                if (data.color) setMyColor(data.color);
+                if (data.isMyTurn !== undefined) setIsMyTurn(data.isMyTurn);
+                if (data.opponent) setOpponent(data.opponent);
+                if (data.bombUsed !== undefined) setBombUsed(data.bombUsed);
+                if (data.laserUsed !== undefined) setLaserUsed(data.laserUsed);
+            }
+
         };
 
         addHandler(handler);
@@ -130,11 +182,43 @@ export default function GamePage() {
         return () => removeHandler(handler);
     }, [user, code, addHandler, removeHandler, send, isHost, gameLoading]);
 
-    const handlePlayMove = (col: number) => {
+    useEffect(() => {
+        if (gameOver) return;
+
+        const handleBeforeUnload = (e: BeforeUnloadEvent) => {
+            e.preventDefault();
+            e.returnValue = "";
+        };
+
+        window.addEventListener("beforeunload", handleBeforeUnload);
+
+        return () => {
+            window.removeEventListener("beforeunload", handleBeforeUnload);
+        };
+    }, [gameOver]);
+
+    const handleCellClick = (row: number, col: number) => {
         if (!isMyTurn || gameOver) return;
-        if (board[0][col] !== null) return;
-        send({ type: "playMove", move: { col, color: myColor } });
-        setIsMyTurn(false);
+
+        if (bombActive && !bombUsed) {
+            // Utilisation de la bombe
+            send({ type: "useSpecialMove", move: { type: "bombe", row, col } });
+            setBombActive(false);
+            setBombUsed(true);
+        } else if (laserActive && !laserUsed) {
+            send({ type: "useSpecialMove", move: { type: "laser", col } });
+            setLaserActive(false);
+            setLaserUsed(true);
+            return;
+        } else {
+            // Coup normal
+            if (board[0][col] !== null) return; // colonne pleine
+            send({ type: "playMove", move: { col, color: myColor } });
+            setIsMyTurn(false);
+        }
+
+
+
     };
 
     if (userLoading) return <p className={`${theme.text} p-4`}>Chargement utilisateur...</p>;
@@ -153,7 +237,6 @@ export default function GamePage() {
 
             {/* Info adversaire et tour */}
             <p className="mb-2 text-lg">
-                Adversaire : <span className={`${theme.text} text-cyan-400`}>{opponent ?? "En attente..."}</span> —{" "}
                 <span className={isMyTurn ? "text-green-400" : "text-red-400"}>
                     {isMyTurn ? "Votre tour" : "Tour adverse"}
                 </span>
@@ -172,6 +255,45 @@ export default function GamePage() {
                 </span>
             </div>
 
+            {/* Coup spécial Bombe */}
+            {bombUsed !== null && (
+                <div className="mb-2">
+                    <button
+                        className={`px-4 py-2 rounded-lg font-semibold shadow transition ${
+                            !isMyTurn || gameOver || bombUsed
+                                ? "bg-gray-500 cursor-not-allowed"
+                                : "bg-red-600 hover:bg-red-700 text-white"
+                        }`}
+                        disabled={!isMyTurn || gameOver || bombUsed}
+                        onClick={() => setBombActive(true)}
+                    >
+                        💣 Bombe {bombUsed ? "(utilisée)" : ""}
+                    </button>
+                    {bombActive && !bombUsed && (
+                        <p className="text-red-400 font-semibold mt-1">💣 Cliquez sur une pièce pour la supprimer !</p>
+                    )}
+                </div>
+            )}
+
+            {/* Coup spécial Laser orbital */}
+            <div className="mb-2">
+                <button
+                    className={`px-4 py-2 rounded-lg font-semibold shadow transition ${
+                        !isMyTurn || gameOver || laserUsed
+                            ? "bg-gray-500 cursor-not-allowed"
+                            : "bg-blue-600 hover:bg-blue-700 text-white"
+                    }`}
+                    disabled={!isMyTurn || gameOver || laserUsed}
+                    onClick={() => setLaserActive(true)}
+                >
+                    🚀 Laser Orbital {laserUsed ? "(utilisé)" : ""}
+                </button>
+                {laserActive && !laserUsed && (
+                    <p className="text-blue-400 font-semibold mt-1">🚀 Cliquez sur une colonne pour tout détruire !</p>
+                )}
+            </div>
+
+
             {/* Plateau */}
             <div className={`${theme.board} grid grid-rows-6 grid-cols-7 gap-2 p-3 rounded-xl shadow-inner border-4 border-gray-700`}>
                 {board.map((row, r) =>
@@ -181,7 +303,7 @@ export default function GamePage() {
                             className={`w-14 h-14 rounded-full flex items-center justify-center cursor-pointer transition transform ${
                                 !gameOver && isMyTurn ? "hover:scale-110" : ""
                             }`}
-                            onClick={() => handlePlayMove(c)}
+                            onClick={() => handleCellClick(r, c)}
                         >
                             <div className={`w-full h-full rounded-full flex items-center justify-center ${theme.emptyCell}`}>
                                 {cell && (

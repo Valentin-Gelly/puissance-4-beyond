@@ -14,6 +14,11 @@ model User {
   verified           Boolean  @default(false)
   verificationToken  String?  @unique
   createdAt          DateTime @default(now())
+
+  username           String   @unique
+  name               String
+  lastname           String
+
   stats              Stats?
 
   hostGames  Game[]   @relation("HostGames")
@@ -37,20 +42,26 @@ model Stats {
 }
 
 model Game {
-  id         Int       @id @default(autoincrement())
-  code       String    @unique
-  hostId     Int
-  guestId    Int?
-  nextToPlay Int?
-  turn       Int       @default(0)
-  board      Json      @default("[]")
-  winnerId   Int?      // nouvel id du joueur gagnant
-  loserId    Int?      // nouvel id du joueur perdant
-  createdAt  DateTime  @default(now())
-  updatedAt  DateTime  @updatedAt
+  id             Int       @id @default(autoincrement())
+  code           String    @unique
+  hostId         Int
+  guestId        Int?
+  nextToPlay     Int?
+  turn           Int       @default(0)
+  board          Json      @default("[]")
+  winnerId       Int?
+  loserId        Int?
+  status         String    @default("pending")
+  hostBombUsed   Boolean   @default(false)
+  guestBombUsed  Boolean   @default(false)
+  hostLaserUsed   Boolean   @default(false)
+  guestLaserUsed  Boolean   @default(false)
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
 
-  host       User      @relation("HostGames", fields: [hostId], references: [id])
-  guest      User?     @relation("GuestGames", fields: [guestId], references: [id])
-  winner     User?     @relation("Winner", fields: [winnerId], references: [id])
-  loser      User?     @relation("Loser", fields: [loserId], references: [id])
+  host           User      @relation("HostGames", fields: [hostId], references: [id])
+  guest          User?     @relation("GuestGames", fields: [guestId], references: [id])
+  winner         User?     @relation("Winner", fields: [winnerId], references: [id])
+  loser          User?     @relation("Loser", fields: [loserId], references: [id])
 }
+

@@ -6,22 +6,33 @@ import { sendVerificationEmail } from "@/lib/mail";
 
 export async function POST(req: Request) {
     try {
-        const { email, password } = await req.json();
-        if (!email || !password)
+        const { email, password, username, name, lastname } = await req.json();
+
+        // Vérifier que tous les champs sont présents
+        if (!email || !password || !username || !name || !lastname)
             return NextResponse.json({ error: "Champs manquants" }, { status: 400 });
 
-        const existing = await prisma.user.findUnique({ where: { email } });
-        if (existing)
+        // Vérifier email unique
+        const existingEmail = await prisma.user.findUnique({ where: { email } });
+        if (existingEmail)
             return NextResponse.json({ error: "Email déjà utilisé" }, { status: 400 });
+
+        // Vérifier username unique
+        const existingUsername = await prisma.user.findUnique({ where: { username } });
+        if (existingUsername)
+            return NextResponse.json({ error: "Nom d'utilisateur déjà utilisé" }, { status: 400 });
 
         const hashed = await bcrypt.hash(password, 10);
         const token = crypto.randomBytes(32).toString("hex");
 
-        // Créer l'utilisateur **et** sa ligne Stats en même temps
+        // Créer l'utilisateur + stats
         const user = await prisma.user.create({
             data: {
                 email,
                 password: hashed,
+                username,
+                name,
+                lastname,
                 verificationToken: token,
                 stats: {
                     create: {
@@ -32,7 +43,7 @@ export async function POST(req: Request) {
                     },
                 },
             },
-            include: { stats: true }, // pour récupérer les stats créées si nécessaire
+            include: { stats: true },
         });
 
         await sendVerificationEmail(user.email, token);

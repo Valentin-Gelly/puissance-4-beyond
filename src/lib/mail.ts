@@ -10,27 +10,32 @@ const transporter = nodemailer.createTransport({
 });
 
 export async function sendVerificationEmail(email: string, token: string) {
-    const verifyUrl = `${process.env.APP_URL}/api/verify?token=${token}`;
+    try {
+        const verifyUrl = `${process.env.APP_URL}/api/verify?token=${token}`;
 
-    const html = `
-    <div style="font-family: sans-serif; text-align: center;">
-      <h2>Confirmez votre adresse e-mail</h2>
-      <p>Merci de vous être inscrit ! Cliquez sur le bouton ci-dessous pour confirmer votre compte :</p>
-      <a href="${verifyUrl}" 
-         style="display: inline-block; background: #2563eb; color: white; 
-                padding: 10px 20px; border-radius: 8px; text-decoration: none;">
-        Confirmer mon e-mail
-      </a>
-      <p style="margin-top: 16px; font-size: 12px; color: #666;">
-        Si vous n’avez pas créé de compte, ignorez ce message.
-      </p>
-    </div>
-  `;
+        const html = `
+      <div style="font-family: sans-serif; text-align: center;">
+        <h2>Confirmez votre adresse e-mail</h2>
+        <p>Merci de vous être inscrit ! Cliquez sur le bouton ci-dessous pour confirmer votre compte :</p>
+        <a href="${verifyUrl}"
+           style="display:inline-block;background:#2563eb;color:white;
+                  padding:10px 20px;border-radius:8px;text-decoration:none;">
+          Confirmer mon e-mail
+        </a>
+      </div>
+    `;
 
-    await transporter.sendMail({
-        from: process.env.MAIL_FROM,
-        to: email,
-        subject: "Confirmez votre adresse e-mail",
-        html,
-    });
+        await transporter.sendMail({
+            from: process.env.MAIL_FROM,
+            to: email,
+            subject: "Confirmez votre adresse e-mail",
+            html,
+        });
+
+        console.log("✅ Email envoyé à", email);
+    } catch (err) {
+        console.error("❌ ERREUR SMTP", err);
+        throw err;
+    }
 }
+

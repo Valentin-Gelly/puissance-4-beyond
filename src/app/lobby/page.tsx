@@ -16,9 +16,11 @@ type GameHistory = {
     winnerId: number | null;
     loserId: number | null;
     createdAt: string;
-    opponentEmail: string;
-    result: "win" | "loss" | "draw";
+    opponentUsername: string;
+    result: "win" | "loss";
+    status: "draw" | "interrupted";
 };
+
 
 type LobbyState =
     | { mode: "stats" }
@@ -26,7 +28,7 @@ type LobbyState =
     | { mode: "joining"; codeInput: string; status?: "not-found" | "joined" | "error" };
 
 export default function LobbyPage() {
-    const [user, setUser] = useState<{ id: number; email: string } | null>(null);
+    const [user, setUser] = useState<{ id: number; username: string } | null>(null);
     const [stats, setStats] = useState<Stats | null>(null);
     const [games, setGames] = useState<GameHistory[]>([]);
     const [statsError, setStatsError] = useState(false);
@@ -76,7 +78,7 @@ export default function LobbyPage() {
             switch (data.type) {
                 case "lobbyCreated":
                     setIsHost(true);
-                    setLobby({ mode: "creating", code: data.code, status: "waiting", players: [user.email] });
+                    setLobby({ mode: "creating", code: data.code, status: "waiting", players: [user.username] });
                     break;
 
                 case "guestJoined":
@@ -88,7 +90,7 @@ export default function LobbyPage() {
                     break;
 
                 case "joinedLobby":
-                    setLobby({ mode: "creating", code: data.code, status: "ready", players: [data.host, user.email] });
+                    setLobby({ mode: "creating", code: data.code, status: "ready", players: [data.host, user.username] });
                     setIsHost(false);
                     break;
 
@@ -115,7 +117,7 @@ export default function LobbyPage() {
             const data = await res.json();
             if (!res.ok) throw new Error(data.error || "Erreur de création");
 
-            setLobby({ mode: "creating", code: data.code, status: "waiting", players: [user!.email] });
+            setLobby({ mode: "creating", code: data.code, status: "waiting", players: [user!.username] });
             setIsHost(true);
             send({ type: "createLobby", code: data.code });
         } catch (err: any) {
@@ -158,7 +160,7 @@ export default function LobbyPage() {
             {/* Header */}
             <header className={`flex flex-col md:flex-row justify-between items-center ${theme.board} shadow-md p-6 sticky top-0 z-20 rounded-b-lg`}>
                 <h1 className="text-2xl md:text-3xl font-extrabold mb-3 md:mb-0">
-                    Bienvenue, <span className={theme.text}>{user.email}</span>
+                    Bienvenue, <span className={theme.text}>{user.username}</span>
                 </h1>
                 <div className="flex flex-wrap gap-3 items-center relative">
                     <button
@@ -292,7 +294,7 @@ export default function LobbyPage() {
 
                         <div className="mt-12">
                             <h2 className={`text-3xl font-extrabold mb-4 ${theme.text}`}>Historique des parties</h2>
-                            {games.filter(g => g.opponentEmail !== "Inconnu").length === 0 ? (
+                            {games.filter(g => g.opponentUsername !== "Inconnu").length === 0 ? (
                                 <p>Aucune partie jouée.</p>
                             ) : (
                                 <div className="overflow-x-auto rounded-xl shadow-lg border border-gray-700">
@@ -305,18 +307,39 @@ export default function LobbyPage() {
                                         </tr>
                                         </thead>
                                         <tbody>
-                                        {games.filter(g => g.opponentEmail !== "Inconnu").map(game => {
-                                            const resultLabel =
-                                                game.result === "win" ? "Victoire" :
-                                                    game.result === "loss" ? "Défaite" : "Match nul";
-                                            const resultColor =
-                                                game.result === "win" ? "text-green-400 font-semibold" :
-                                                    game.result === "loss" ? "text-red-400 font-semibold" :
-                                                        "text-gray-400 font-medium";
+                                        {games.filter(g => g.opponentUsername !== "Inconnu").map(game => {
+                                            let resultLabel: string;
+                                            let resultColor: string;
+
+                                            if (!game.winnerId && !game.loserId) {
+                                                // Affiche le status de manière lisible
+                                                switch (game.status) {
+                                                    case "interrupted":
+                                                        resultLabel = "Interrompu";
+                                                        break;
+                                                    case "draw":
+                                                        resultLabel = "Match nul";
+                                                        break;
+                                                    default:
+                                                        resultLabel = "Interrompu";
+                                                }
+                                                resultColor = "text-gray-400 font-medium";
+                                            } else {
+                                                // Sinon, résultat classique
+                                                resultLabel =
+                                                    game.result === "win" ? "Victoire" :
+                                                        game.result === "loss" ? "Défaite" :
+                                                            "Match nul";
+
+                                                resultColor =
+                                                    game.result === "win" ? "text-green-400 font-semibold" :
+                                                        game.result === "loss" ? "text-red-400 font-semibold" :
+                                                            "text-gray-400 font-medium";
+                                            }
 
                                             return (
                                                 <tr key={game.code} className="border-t border-gray-700 hover:bg-gray-700 transition">
-                                                    <td className="p-4">{game.opponentEmail}</td>
+                                                    <td className="p-4">{game.opponentUsername}</td>
                                                     <td className={`p-4 capitalize ${resultColor}`}>{resultLabel}</td>
                                                     <td className="p-4">{new Date(game.createdAt).toLocaleString()}</td>
                                                 </tr>

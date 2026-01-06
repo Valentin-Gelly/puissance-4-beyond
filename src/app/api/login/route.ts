@@ -29,7 +29,7 @@ export async function POST(req: Request) {
 
         if (!JWT_SECRET) throw new Error("JWT_SECRET manquant");
 
-        const token = jwt.sign({ id: user.id, email: user.email }, JWT_SECRET, {
+        const token = jwt.sign({ id: user.id, email: user.email, username: user.username }, JWT_SECRET, {
             expiresIn: JWT_EXPIRES_IN,
         });
 

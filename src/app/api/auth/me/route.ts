@@ -10,7 +10,7 @@ export async function GET(req: Request) {
             return NextResponse.json({ error: "Pas de token" }, { status: 401 });
         }
 
-        const decoded = jwt.verify(token, JWT_SECRET) as { id: number; email: string };
+        const decoded = jwt.verify(token, JWT_SECRET) as { id: number; email: string, username: string };
         return NextResponse.json({ user: decoded });
     } catch {
         return NextResponse.json({ error: "Token invalide" }, { status: 401 });
